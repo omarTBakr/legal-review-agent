@@ -141,11 +141,11 @@ function renderReview(taskId, body) {
 
   renderQuestions(taskId, body.pending_questions || []);
   renderProgress(taskId, body.documents || {});
-  renderFinished(body.results || [], body.documents || {});
+  renderFinished(taskId, body.results || [], body.documents || {});
   noticeWhenQuiet(body);
 }
 
-function renderFinished(results, documents) {
+function renderFinished(taskId, results, documents) {
   // cards are added as documents finish and never redrawn, so reading one is
   // not interrupted by the next poll; the completed view replaces them all
   const section = byId("results");
@@ -164,7 +164,7 @@ function renderFinished(results, documents) {
   for (const doc of results) {
     if (state.resultCards.has(doc.pdf_key)) continue;
     state.resultCards.add(doc.pdf_key);
-    section.append(resultCard(doc));
+    section.append(resultCard(doc, taskId, state.project));
   }
 
   byId("finished-count").textContent = `${results.length} of ${Object.keys(documents).length} documents`;
@@ -370,7 +370,7 @@ function renderResults(taskId, body) {
       ),
     ),
     // replaceChildren does not flatten arrays, unlike el()
-    ...documents.map(resultCard),
+    ...documents.map((doc) => resultCard(doc, taskId, state.project)),
   );
 
   // chat reads the advice and the pages back from the project's folder, so a

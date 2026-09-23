@@ -17,6 +17,9 @@ export const endpoints = {
   project: (projectId) => `/projects/${encodeURIComponent(projectId)}`,
   projectReview: (projectId, taskId) => `/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(taskId)}`,
   register: (projectId) => `/projects/${encodeURIComponent(projectId)}/register`,
+  annotated: (taskId, pdfKey, projectId) =>
+    `/legal/${encodeURIComponent(taskId)}/annotated?pdf_key=${encodeURIComponent(pdfKey)}` +
+    (projectId ? `&project_id=${encodeURIComponent(projectId)}` : ""),
   compare: (projectId, base, against) =>
     `/projects/${encodeURIComponent(projectId)}/compare?base=${encodeURIComponent(base)}&against=${encodeURIComponent(against)}`,
   chat: (projectId, taskId) => `/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(taskId)}/chat`,
@@ -175,6 +178,24 @@ export function fetchProject(projectId) {
 
 export function fetchStoredReview(projectId, taskId) {
   return api(endpoints.projectReview(projectId, taskId));
+}
+
+/** The original PDF with every risk highlighted, as a blob to save. */
+export async function fetchAnnotated(taskId, pdfKey, projectId = "") {
+  const response = await fetch(endpoints.annotated(taskId, pdfKey, projectId), { headers: authHeaders() });
+
+  if (!response.ok) {
+    noticeUnauthorized(response.status);
+    let body = null;
+    try {
+      body = await response.json();
+    } catch {
+      // not JSON; the status is all there is
+    }
+    throw new ApiError(response.status, describeError(response.status, body));
+  }
+
+  return response.blob();
 }
 
 /** Every risk in a project, worst first. */

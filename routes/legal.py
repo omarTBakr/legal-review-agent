@@ -1,6 +1,7 @@
 import asyncio
+from pathlib import Path
 
-from fastapi import APIRouter, Body, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, Query, Response, UploadFile
 from temporalio.service import RPCError, RPCStatusCode
 
 from enums.TaskStatus import TaskStatus
@@ -8,6 +9,8 @@ from exceptions.storage import ObjectNotFoundError
 from exceptions.validation import TooManyFilesError
 from schemas.legal_review import LegalReviewInput
 from schemas.project import Project
+from utils.advice_store import read_advice
+from utils.annotate import annotate
 from utils.config import get_setting
 from utils.http_errors import http_errors
 from utils.legal_responses import (
@@ -18,9 +21,10 @@ from utils.legal_responses import (
     status_response,
 )
 from utils.logger import get_logger
-from utils.projects import get_project, record_review, validate_email
+from utils.projects import check_project_id, get_project, record_review, validate_email
 from utils.store_upload import store_uploads
 from utils.temporal_client import get_temporal_client
+from utils.utility import download_s3_bytes
 from utils.workflow_ids import legal_workflow_id_for
 from workflows.workflow_legal_review import LegalReviewWorkflow
 
@@ -95,6 +99,51 @@ async def submit(
 
     response.status_code = ACCEPTED
     return accepted_response(task_id, pdf_keys, bucket or settings.s3_pdf_bucket, project.id if project else "")
+
+
+@router.get("/{task_id}/annotated")
+async def annotated(task_id: str, pdf_key: str = Query(...), project_id: str = Query("")) -> Response:
+    """
+    The original PDF with every risk highlighted where it was found.
+
+    `project_id` says which buckets to read: a project's own, or the pipeline's
+    default ones. The risks whose quotes could not be located in the page text
+    are listed on an appendix page rather than left out.
+    """
+    settings = get_setting()
+
+    with http_errors(f"annotating {pdf_key}"):
+        if project_id:
+            project_id = check_project_id(project_id)
+            # a key is pasted straight into a bucket read, so it has to be inside
+            # the project it claims to be in — otherwise any project's documents
+            # are one crafted query string away
+            if not pdf_key.startswith(f"{project_id}/"):
+                raise HTTPException(status_code=400, detail=f"{pdf_key} is not in project {project_id}")
+
+        bucket = settings.s3_projects if project_id else settings.s3_pdf_bucket
+        advice_bucket = settings.s3_projects if project_id else settings.s3_legal_advice
+
+        try:
+            pdf = await asyncio.to_thread(download_s3_bytes, bucket, pdf_key)
+            advice = await asyncio.to_thread(read_advice, pdf_key, settings, advice_bucket)
+        except ObjectNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=f"no finished review for {pdf_key}") from exc
+
+        marked, report = await asyncio.to_thread(annotate, pdf, advice.key_risks, Path(pdf_key).name)
+
+    logger.info("[task %s] annotated %s: %s", task_id, pdf_key, report)
+
+    return Response(
+        content=marked,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{Path(pdf_key).stem}-reviewed.pdf"',
+            "X-Risks-Highlighted": str(report["highlighted"]),
+            "X-Risks-Listed-Only": str(report["listed_only"]),
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 async def _load_project(project_id: str, settings) -> Project:

@@ -1527,3 +1527,8 @@ textarea {
   gap: 8px;
   margin-top: 12px;
 }
+
+/* The marked-up PDF button on a result card. */
+.card-actions {
+  margin-top: 16px;
+}

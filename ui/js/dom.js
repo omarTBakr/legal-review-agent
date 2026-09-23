@@ -89,7 +89,18 @@ export function copyButton(text, label) {
 }
 
 export function downloadJson(filename, data) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  downloadBlob(filename, new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+}
+
+/**
+ * Saves a blob the page already has.
+ *
+ * A plain <a href> to the endpoint would be simpler and would not carry the
+ * API key, since a navigation cannot set a header — so anything behind the key
+ * has to be fetched first and saved from memory.
+ */
+export function downloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
   const link = el("a", { href: url, download: filename });
   document.body.append(link);
   link.click();
