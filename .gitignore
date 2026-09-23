@@ -20,3 +20,8 @@ setup/samples-server/
 
 # agent worktrees: git repositories of their own, not part of this one
 .claude/worktrees/
+
+# CUAD, downloaded on demand (CC BY 4.0, see evaluation/README.md), and the raw
+# model output of every evaluation run
+evaluation/data/
+evaluation/results/
