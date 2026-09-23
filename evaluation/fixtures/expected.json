@@ -1,0 +1,196 @@
+{
+  "about": [
+    "The table in testingDocs/README.md, made machine-readable. Two invented contracts, so",
+    "there is no question of a model having memorised them, and no licence or download.",
+    "",
+    "This is the suite to run on every prompt change: two documents, five or six model calls,",
+    "seconds, cents. CUAD is the periodic one.",
+    "",
+    "It is still not a scoring key. The README says the model may reasonably flag things this",
+    "list does not, and the scorer reports those as extra_findings rather than as errors. What",
+    "it does assert is that these eleven and six things are found, because a review that misses",
+    "clause 6.1 of a contract written to make clause 6.1 obvious is broken.",
+    "",
+    "must_include is a list of groups of alternatives: a risk counts as finding the clause when",
+    "every group has at least one of its words somewhere in the risk's description, location or",
+    "quote. Groups rather than a flat word list because the model will say 'uncapped' where the",
+    "README says 'unlimited', and that is a difference of phrasing, not a miss.",
+    "",
+    "anchor is the sentence the risk should be quoting. It is scored separately from the keyword",
+    "match, because a review that describes the right risk while quoting the wrong sentence is a",
+    "different failure from one that misses the risk, and the two want different fixes.",
+    "",
+    "severity_band is what a lawyer would put on it. The scorer allows one band either way; it",
+    "is a judgement, not a fact, and a suite that demands the exact word would fail on taste."
+  ],
+  "documents": {
+    "services-agreement.pdf": {
+      "pages": 4,
+      "expect_needs_human": true,
+      "needs_human_about": "Clause 12.1 leaves the governing law blank, which the document cannot answer.",
+      "expectations": [
+        {
+          "id": "services-6.1-client-unlimited-liability",
+          "clause": "6.1",
+          "page": 2,
+          "severity_band": "critical",
+          "what": "The client's liability is unlimited while the supplier's is capped at 10% of three months' fees.",
+          "must_include": [["liability", "liabilities", "liable"], ["unlimited", "uncapped", "not capped", "no cap", "unbounded"]],
+          "anchor": "The Client's aggregate liability under this Agreement is unlimited and is not capped by reference to the fees paid."
+        },
+        {
+          "id": "services-7.1-client-indemnifies-supplier",
+          "clause": "7.1",
+          "page": 3,
+          "severity_band": "high",
+          "what": "The client indemnifies the supplier, including for the supplier's own infringement; the supplier indemnifies nothing.",
+          "must_include": [["indemnif", "hold harmless"]],
+          "anchor": "The Client shall indemnify and hold harmless the Supplier, its officers and its subcontractors against all claims, losses and costs arising out of the Client's use of the deliverables, including claims that the deliverables infringe a third party's rights."
+        },
+        {
+          "id": "services-9.1-termination-for-convenience",
+          "clause": "9.1",
+          "page": 3,
+          "severity_band": "high",
+          "what": "The supplier may terminate for convenience; the client only for unremedied material breach.",
+          "must_include": [["terminat"], ["convenience", "at will", "without cause", "immediately"]],
+          "anchor": "The Supplier may terminate this Agreement immediately for convenience on written notice."
+        },
+        {
+          "id": "services-4.1-ip-vests-in-supplier",
+          "clause": "4.1",
+          "page": 2,
+          "severity_band": "high",
+          "what": "IP in the deliverables vests in the supplier, including the client's own materials, and the licence back is revocable.",
+          "must_include": [["intellectual property", "ip rights", "ownership", "vest"], ["supplier", "deliverable"]],
+          "anchor": "All intellectual property rights in the deliverables, including any materials provided by the Client and incorporated into them, vest in the Supplier absolutely on creation."
+        },
+        {
+          "id": "services-3.2-auto-renewal",
+          "clause": "3.2",
+          "page": 1,
+          "severity_band": "medium",
+          "what": "Thirty-six month term, automatic renewal, 180 days notice to escape it.",
+          "must_include": [["renew"], ["automatic", "automatically", "180", "one hundred and eighty", "notice"]],
+          "anchor": "On expiry the Agreement renews automatically for successive twelve (12) month terms unless the Client gives written notice of non-renewal no less than one hundred and eighty (180) days before the end of the then-current term."
+        },
+        {
+          "id": "services-2.4-interest-per-month",
+          "clause": "2.4",
+          "page": 1,
+          "severity_band": "medium",
+          "what": "Ninety-day payment terms, rates raised on 14 days notice applying to scheduled work, and 8% interest per month.",
+          "must_include": [["interest", "payment", "invoice", "rate"], ["8%", "per month", "ninety", "90", "fourteen", "14"]],
+          "anchor": "Interest accrues on late payment at 8% per month."
+        },
+        {
+          "id": "services-10.1-non-solicitation",
+          "clause": "10.1",
+          "page": 4,
+          "severity_band": "medium",
+          "what": "Two-year non-solicitation covering people who approach the client unprompted, with a twelve-month-salary penalty.",
+          "must_include": [["solicit", "employ", "engage", "poach"]],
+          "anchor": "For twenty-four (24) months after termination the Client shall not employ or engage any person who has been involved in providing the services, whether or not that person approached the Client."
+        },
+        {
+          "id": "services-11.2-assignment-asymmetry",
+          "clause": "11.2",
+          "page": 4,
+          "severity_band": "medium",
+          "what": "The supplier may assign freely; the client may not assign at all.",
+          "must_include": [["assign", "novate"]],
+          "anchor": "The Client may not assign this Agreement without the Supplier's prior written consent, which may be withheld at the Supplier's discretion."
+        },
+        {
+          "id": "services-8.1-data-transfers",
+          "clause": "8.1",
+          "page": 3,
+          "severity_band": "medium",
+          "what": "Personal data may go to any country the supplier operates in, and breach notice is 'within a reasonable period'.",
+          "must_include": [["personal data", "data protection", "gdpr"], ["transfer", "any country", "breach", "reasonable period"]],
+          "anchor": "The Supplier may transfer personal data processed under this Agreement to any country in which it or its subcontractors operate."
+        },
+        {
+          "id": "services-5.2-marketing-without-approval",
+          "clause": "5.2",
+          "page": 2,
+          "severity_band": "low",
+          "what": "The supplier may use the client's name in marketing without approval.",
+          "must_include": [["marketing", "case stud", "publicity", "name the client"]],
+          "anchor": "The Supplier may name the Client and describe the services in its marketing materials, case studies and proposals without the Client's prior approval."
+        },
+        {
+          "id": "services-12.1-governing-law-blank",
+          "clause": "12.1",
+          "page": 4,
+          "severity_band": "high",
+          "what": "Governing law is left blank: [JURISDICTION TO BE AGREED BY THE PARTIES].",
+          "must_include": [["governing law", "jurisdiction", "laws of"], ["blank", "to be agreed", "not specified", "unspecified", "placeholder", "missing", "left open"]],
+          "anchor": "This Agreement and any dispute arising out of it are governed by the laws of [JURISDICTION TO BE AGREED BY THE PARTIES].",
+          "satisfied_by_needs_human": true,
+          "satisfied_by_needs_human_about": "The design says to ask, not to guess: a review that raises this through needs_human has done the right thing, and counting it as a missed risk would penalise the behaviour the prompt asks for."
+        }
+      ]
+    },
+    "mutual-nda.pdf": {
+      "pages": 2,
+      "expect_needs_human": false,
+      "expectations": [
+        {
+          "id": "nda-2.2-perpetual-confidentiality",
+          "clause": "2.2",
+          "page": 1,
+          "severity_band": "high",
+          "what": "Confidentiality in perpetuity, surviving termination indefinitely.",
+          "must_include": [["perpetuity", "perpetual", "indefinite", "no end", "unlimited duration"]],
+          "anchor": "The obligations in this Agreement continue in perpetuity and survive termination indefinitely."
+        },
+        {
+          "id": "nda-1.1-overbroad-definition",
+          "clause": "1.1",
+          "page": 1,
+          "severity_band": "high",
+          "what": "'Confidential Information' covers unmarked information and things the recipient develops independently.",
+          "must_include": [["confidential information", "definition"], ["independently", "unmarked", "not marked", "whether or not marked", "broad", "overbroad"]],
+          "anchor": "\"Confidential Information\" means all information disclosed by either party, whether or not marked as confidential, and whether disclosed orally, in writing or by any other means, including information the Recipient develops independently after the date of this Agreement."
+        },
+        {
+          "id": "nda-2.3-certified-destruction-of-backups",
+          "clause": "2.3",
+          "page": 1,
+          "severity_band": "medium",
+          "what": "Certified destruction including routine backups, which is usually impossible to honour.",
+          "must_include": [["destruction", "destroy"], ["backup", "certif"]],
+          "anchor": "The Recipient shall, on request, certify in writing the destruction of all copies, including copies held in routine backups."
+        },
+        {
+          "id": "nda-3.2-indemnity-basis-costs",
+          "clause": "3.2",
+          "page": 1,
+          "severity_band": "high",
+          "what": "The recipient pays costs on an indemnity basis whether or not Northwind wins.",
+          "must_include": [["legal costs", "costs", "indemnity basis"], ["whether or not", "succeeds", "regardless", "even if", "loses"]],
+          "anchor": "The Recipient shall pay Northwind's legal costs on an indemnity basis in any proceedings arising under this Agreement, whether or not Northwind succeeds."
+        },
+        {
+          "id": "nda-4.2-feedback-becomes-property",
+          "clause": "4.2",
+          "page": 2,
+          "severity_band": "medium",
+          "what": "Feedback becomes Northwind's property.",
+          "must_include": [["feedback", "comments", "suggestions"], ["property", "ownership", "owns", "assign"]],
+          "anchor": "Any feedback, comments or suggestions the Recipient provides about Northwind's products become Northwind's property without payment or attribution."
+        },
+        {
+          "id": "nda-5.2-one-sided-termination-and-amendment",
+          "clause": "5.2",
+          "page": 2,
+          "severity_band": "high",
+          "what": "Only Northwind may terminate, and it may amend the terms unilaterally.",
+          "must_include": [["terminat", "amend"], ["may not", "only northwind", "unilateral", "one-sided", "one sided", "not mutual"]],
+          "anchor": "The Recipient may not terminate this Agreement."
+        }
+      ]
+    }
+  }
+}
