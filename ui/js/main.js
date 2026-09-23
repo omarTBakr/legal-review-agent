@@ -7,11 +7,12 @@
  * build step and no dependencies: ES modules, served as they are written.
  */
 
-import { checkHealth } from "./api.js";
+import { checkHealth, onUnauthorized } from "./api.js";
 import { byId } from "./dom.js";
 import { parse } from "./router.js";
 import { renderRecent, clearRecent } from "./sidebar.js";
 import { showNewReview } from "./views/new-review.js";
+import { askForKey } from "./views/key.js";
 import { showProject } from "./views/project.js";
 import { showProjects } from "./views/projects.js";
 import { showReview, stopPolling } from "./views/review.js";
@@ -60,6 +61,9 @@ function init() {
     route();
     byId("main").focus({ preventScroll: true });
   });
+
+  // any 401, from any view, brings up the key form
+  onUnauthorized(askForKey);
 
   route();
   checkHealth();

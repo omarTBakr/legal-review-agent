@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     temporal_task_queue: str = Field("process_pdf_queue", description="Task queue the workflow and activities are polled from")
     log_level: str = Field("INFO", description="Root log level: DEBUG, INFO, WARNING, ERROR")
     run_worker_in_api: bool = Field(False, description="Run the Temporal worker inside the API process")
+    # empty leaves every route open, which is fine on a laptop and nowhere else;
+    # utils/auth.py warns at startup when it is
+    api_key: str = Field("", description="Shared secret required on the X-API-Key header")
 
     # LLM
     llm_provider: str = Field("openrouter", description="Which LLMInterface implementation the factory returns")

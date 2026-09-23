@@ -18,6 +18,7 @@ import httpx
 from exceptions.voice import SynthesisError, TranscriptionError, VoiceConfigurationError, VoiceUnavailableError
 from interfaces.asr_interface import ASRInterface
 from interfaces.tts_interface import TTSInterface
+from utils.auth import HEADER_NAME
 from utils.config import Settings
 from utils.logger import get_logger
 
@@ -39,6 +40,9 @@ class VoiceService(ASRInterface, TTSInterface):
             self._client = httpx.AsyncClient(
                 base_url=self._settings.voice_service_url,
                 timeout=self._settings.voice_timeout_seconds,
+                # the voice service checks the same shared key; with none set
+                # neither side asks for it
+                headers={HEADER_NAME: self._settings.api_key} if self._settings.api_key else {},
             )
         return self._client
 

@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -11,6 +11,7 @@ from routes.legal import router as legal_router
 from routes.process import router as process_router
 from routes.projects import router as projects_router
 from routes.voice import router as voice_router
+from utils.auth import require_api_key, warn_if_open
 from utils.config import get_setting
 from utils.logger import get_logger, setup_logging
 from workers.process_pdf_worker import create_process_pdf_worker
@@ -50,6 +51,7 @@ async def lifespan(app: FastAPI):
     request handling, and in-flight work survives an API restart.
     """
     settings = get_setting()
+    warn_if_open(settings)
 
     if not settings.run_worker_in_api:
         logger.info("worker not started in-process; run worker.py separately")
@@ -67,15 +69,22 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Legal Review Agent", description="PDF to Markdown and LLM legal review pipelines", lifespan=lifespan)
-app.include_router(process_router)
-app.include_router(legal_router)
-app.include_router(projects_router)
-app.include_router(chat_router)
-app.include_router(voice_router)
+
+# the key is required at the router, not the route: an endpoint added later is
+# covered by having been added at all, rather than by someone remembering a
+# decorator on the one that uploads documents
+protected = [Depends(require_api_key)]
+
+app.include_router(process_router, dependencies=protected)
+app.include_router(legal_router, dependencies=protected)
+app.include_router(projects_router, dependencies=protected)
+app.include_router(chat_router, dependencies=protected)
+app.include_router(voice_router, dependencies=protected)
 
 
 @app.get("/health")
 async def health() -> dict:
+    """Open on purpose: a monitor should not need the secret to see we are alive."""
     return {"status": "ok"}
 
 

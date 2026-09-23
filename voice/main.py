@@ -18,11 +18,12 @@ import time
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.responses import JSONResponse
 
 from asr import Transcriber
 from audio import AudioError
+from auth import require_api_key, warn_if_open
 from config import get_settings
 from logger import get_logger, setup_logging
 from tts import build_speaker
@@ -48,6 +49,8 @@ async def lifespan(app: FastAPI):
     /health, saying which model is missing, instead of crash-looping in a
     container while the API reports it as merely unreachable.
     """
+    warn_if_open(settings)
+
     if settings.eager_load:
         for name, load in (("ASR", transcriber.load), ("TTS", speaker.load)):
             try:
@@ -90,7 +93,7 @@ async def health() -> dict:
     }
 
 
-@app.post("/transcribe")
+@app.post("/transcribe", dependencies=[Depends(require_api_key)])
 async def transcribe(audio: UploadFile = File(...), language: str = Form("")) -> dict:
     """One recording in, its text out."""
     data = await audio.read()
@@ -112,7 +115,7 @@ async def transcribe(audio: UploadFile = File(...), language: str = Form("")) ->
     return {"text": result.text, "language": result.language or language or settings.language}
 
 
-@app.post("/speak")
+@app.post("/speak", dependencies=[Depends(require_api_key)])
 async def speak(
     text: str = Body(..., embed=True),
     voice: str = Body("", embed=True),

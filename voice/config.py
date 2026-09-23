@@ -35,6 +35,10 @@ class VoiceSettings:
     language: str = "English"
     host: str = "127.0.0.1"
     port: int = 8100
+    # the same API_KEY the API uses: only the API calls this service, and one
+    # secret to set is more likely to be set than two. Empty leaves it open,
+    # which is right for 127.0.0.1 and wrong the moment the port is published
+    api_key: str = ""
     # the sample rate Qwen3-ASR expects; anything else is resampled on the way in
     sample_rate: int = 16000
     max_new_tokens: int = 256
@@ -62,6 +66,7 @@ class VoiceSettings:
             language=os.getenv("TTS_LANGUAGE", cls.language),
             host=os.getenv("VOICE_HOST", cls.host),
             port=int(os.getenv("VOICE_PORT", cls.port)),
+            api_key=os.getenv("API_KEY", cls.api_key),
             max_new_tokens=int(os.getenv("ASR_MAX_NEW_TOKENS", cls.max_new_tokens)),
             eager_load=os.getenv("VOICE_EAGER_LOAD", "true").strip().lower() not in ("false", "0", "no"),
             warm_up=os.getenv("VOICE_WARM_UP", "true").strip().lower() not in ("false", "0", "no"),

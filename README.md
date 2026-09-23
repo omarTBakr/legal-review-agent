@@ -535,6 +535,7 @@ cp .env.example .env
 | `TEMPORAL_TASK_QUEUE` | Task queue for the workflow and activities (default `process_pdf_queue`) |
 | `LOG_LEVEL` | Root log level (default `INFO`) |
 | `RUN_WORKER_IN_API` | Run the PDF worker inside the API process (default `false`) |
+| `API_KEY` | Shared secret required on the `X-API-Key` header. **Empty leaves every route open**, which is right on a laptop and nowhere else; the API and the voice service both read it and warn at startup when it is unset |
 | `OPENROUTER_API_KEY` | OpenRouter API key, needed by the legal review worker |
 | `OPENROUTER_MODEL` | OpenRouter model id the legal review uses |
 | `OPENROUTER_BASE_URL` | OpenRouter API base URL (default `https://openrouter.ai/api/v1`) |

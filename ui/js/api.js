@@ -34,10 +34,63 @@ export class ApiError extends Error {
   }
 }
 
+/*
+ * The API key, if this API wants one.
+ *
+ * sessionStorage rather than localStorage: it goes when the tab does, so a
+ * shared machine does not keep the key for whoever sits down next. Every request
+ * the page makes goes through `authHeaders`, so there is one place to add it and
+ * no route that quietly forgets.
+ */
+const KEY_STORAGE = "legal-review-api-key";
+
+export function storedKey() {
+  try {
+    return sessionStorage.getItem(KEY_STORAGE) || "";
+  } catch {
+    // private browsing, or site data blocked: work without it and let the 401 ask
+    return "";
+  }
+}
+
+export function rememberKey(key) {
+  try {
+    if (key) sessionStorage.setItem(KEY_STORAGE, key);
+    else sessionStorage.removeItem(KEY_STORAGE);
+  } catch {
+    // nothing to be done; the key lasts this page load only
+  }
+}
+
+/** `headers` plus the API key, when there is one to send. */
+export function authHeaders(headers = {}) {
+  const key = storedKey();
+
+  return key ? { ...headers, "X-API-Key": key } : { ...headers };
+}
+
+/*
+ * Who to tell when the API says 401.
+ *
+ * A callback registered by main.js rather than a view imported here: this module
+ * is what every view imports, and importing a view back would be a cycle.
+ */
+let unauthorizedHandler = null;
+
+export function onUnauthorized(handler) {
+  unauthorizedHandler = handler;
+}
+
+const UNAUTHORIZED = 401;
+
+function noticeUnauthorized(status) {
+  if (status === UNAUTHORIZED && unauthorizedHandler) unauthorizedHandler();
+}
+
 export async function api(path, options = {}) {
   let response;
   try {
-    response = await fetch(path, options);
+    response = await fetch(path, { ...options, headers: authHeaders(options.headers) });
   } catch {
     throw new ApiError(0, "Can't reach the API. Is it running (uv run python main.py)?");
   }
@@ -50,6 +103,7 @@ export async function api(path, options = {}) {
   }
 
   if (!response.ok) {
+    noticeUnauthorized(response.status);
     throw new ApiError(response.status, describeError(response.status, body));
   }
 
@@ -141,7 +195,7 @@ export async function askStreaming(projectId, taskId, question, { spoken = false
   try {
     response = await fetch(endpoints.chatStream(projectId, taskId), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ question, spoken, question_audio: questionAudio }),
     });
   } catch {
@@ -155,6 +209,7 @@ export async function askStreaming(projectId, taskId, question, { spoken = false
     } catch {
       // not JSON; the status is all there is
     }
+    noticeUnauthorized(response.status);
     throw new ApiError(response.status, describeError(response.status, body));
   }
 
@@ -228,7 +283,7 @@ export async function transcribe(wav, { projectId = "", taskId = "", turn = -1 }
 export async function synthesize(text, { projectId = "", taskId = "", turn = -1 } = {}) {
   const response = await fetch(endpoints.speak, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json", Accept: "application/json" }),
     body: JSON.stringify({ text, project_id: projectId, task_id: taskId, turn }),
   });
 
@@ -239,6 +294,7 @@ export async function synthesize(text, { projectId = "", taskId = "", turn = -1 
     } catch {
       // not JSON; the status is all there is
     }
+    noticeUnauthorized(response.status);
     throw new ApiError(response.status, detail);
   }
 
@@ -267,7 +323,8 @@ export async function storedTimings(projectId, taskId, turn) {
 
 /** A recording that was kept, or null when there is none. */
 export async function storedAudio(projectId, taskId, turn, kind) {
-  const response = await fetch(endpoints.chatAudio(projectId, taskId, turn, kind));
+  const response = await fetch(endpoints.chatAudio(projectId, taskId, turn, kind), { headers: authHeaders() });
+  noticeUnauthorized(response.status);
 
   return response.ok ? response.blob() : null;
 }
