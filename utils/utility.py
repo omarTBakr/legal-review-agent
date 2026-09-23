@@ -104,6 +104,21 @@ def download_s3_bytes(bucket: str, key: str) -> bytes:
         raise StorageConnectionError(f"could not reach the object store: {exc}") from exc
 
 
+def delete_s3_file(bucket: str, key: str) -> None:
+    """
+    Removes one object, treating "it was not there" as success.
+
+    Used to undo a partly-stored upload, where the caller is already handling a
+    failure and a second one would only bury the first.
+    """
+    try:
+        get_s3_client().delete_object(Bucket=bucket, Key=key)
+    except ClientError as exc:
+        raise UploadError(f"could not delete {bucket}/{key}: {exc}") from exc
+    except BotoCoreError as exc:
+        raise StorageConnectionError(f"could not reach the object store: {exc}") from exc
+
+
 def list_s3_keys(bucket: str, prefix: str) -> list[str]:
     """Every key under `prefix`, following the pagination boto3 hides behind a token."""
     client = get_s3_client()

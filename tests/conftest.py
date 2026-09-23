@@ -79,6 +79,9 @@ class FakeS3Client:
     def upload_file(self, filename, bucket, key):
         self.objects[(bucket, key)] = open(filename, "rb").read()
 
+    def delete_object(self, Bucket, Key):  # noqa: N803
+        self.objects.pop((Bucket, Key), None)
+
     def get_object(self, Bucket, Key):  # noqa: N803 - boto3 spells them this way
         if (Bucket, Key) not in self.objects:
             raise ClientError({"Error": {"Code": "NoSuchKey", "Message": "Not Found"}}, "GetObject")

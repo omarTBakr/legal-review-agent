@@ -17,3 +17,6 @@ assets/
 
 # Third-party Temporal server samples (cloned separately, see README)
 setup/samples-server/
+
+# agent worktrees: git repositories of their own, not part of this one
+.claude/worktrees/

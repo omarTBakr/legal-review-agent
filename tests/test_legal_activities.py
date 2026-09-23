@@ -9,7 +9,15 @@ import time
 import pytest
 from temporalio.testing import ActivityEnvironment
 
-from activities import analyze_batch, human_followup, merge_advice, send_report, split_pages, upload_advice
+from activities import (
+    analyze_batch,
+    cleanup_scratch,
+    human_followup,
+    merge_advice,
+    send_report,
+    split_pages,
+    upload_advice,
+)
 from enums.PromptName import PromptName
 from enums.ReviewDecision import ReviewDecision
 from enums.RiskSeverity import RiskSeverity
@@ -17,6 +25,7 @@ from exceptions.llm import LLMResponseError
 from exceptions.notification import EmailSendError
 from exceptions.storage import UploadError
 from schemas.analyze_batch import AnalyzeBatchInput
+from schemas.cleanup_scratch import CleanupScratchInput
 from schemas.human_followup import HumanFollowupInput
 from schemas.key_risk import KeyRisk
 from schemas.legal_advice import LegalAdvice
@@ -432,6 +441,43 @@ async def test_followup_keeps_verification_for_quotes_it_left_alone(env, llm):
     [risk] = result.advice.key_risks
     assert risk.quote_verified and risk.page == 5
     assert "The Supplier's liability is unlimited." in llm.calls_for(PromptName.HUMAN_FOLLOWUP)[0]["variables"]["draft"]
+
+
+# --- cleanup_scratch -----------------------------------------------------
+
+
+async def test_cleanup_removes_the_local_copies(env, tmp_path):
+    files = [tmp_path / "one.pdf", tmp_path / "two.md"]
+    for path in files:
+        path.write_bytes(b"scratch")
+
+    result = await env.run(
+        cleanup_scratch,
+        CleanupScratchInput(task_id="t1", pdf_key="contract.pdf", paths=[str(path) for path in files]),
+    )
+
+    assert result.removed == 2
+    assert not any(path.exists() for path in files)
+
+
+async def test_cleanup_does_not_mind_a_file_that_is_already_gone(env, tmp_path):
+    """Two documents can share a path when a review is retried."""
+    result = await env.run(
+        cleanup_scratch,
+        CleanupScratchInput(task_id="t1", pdf_key="contract.pdf", paths=[str(tmp_path / "never-existed.pdf")]),
+    )
+
+    assert result.removed == 1 and result.failed == 0
+
+
+async def test_cleanup_reports_what_it_could_not_remove_rather_than_failing(env, tmp_path):
+    """The advice is already stored; a locked file must not fail the review."""
+    result = await env.run(
+        cleanup_scratch,
+        CleanupScratchInput(task_id="t1", pdf_key="contract.pdf", paths=[str(tmp_path)]),
+    )
+
+    assert result.failed == 1
 
 
 # --- send_report ---------------------------------------------------------

@@ -19,7 +19,7 @@ from utils.legal_responses import (
 )
 from utils.logger import get_logger
 from utils.projects import get_project, record_review, validate_email
-from utils.store_upload import store_uploads, validate_upload
+from utils.store_upload import store_uploads
 from utils.temporal_client import get_temporal_client
 from utils.workflow_ids import legal_workflow_id_for
 from workflows.workflow_legal_review import LegalReviewWorkflow
@@ -58,14 +58,10 @@ async def submit(
         project = await _load_project(project_id, settings) if project_id else None
         report_email = validate_email(email) or (project.email if project else "")
 
-        uploads = []
-        for upload in files:
-            pdf = await upload.read()
-            validate_upload(upload.filename, pdf)
-            uploads.append((upload.filename, pdf))
-
         bucket = settings.s3_projects if project else ""
-        task_id, pdf_keys = await store_uploads(uploads, settings, project.prefix if project else "", bucket)
+        # the uploads are streamed to disk one at a time, not read into memory:
+        # twenty documents at once is how an API falls over on a big submission
+        task_id, pdf_keys = await store_uploads(files, settings, project.prefix if project else "", bucket)
 
         client = await get_temporal_client()
         handle = await client.start_workflow(

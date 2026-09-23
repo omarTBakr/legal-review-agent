@@ -357,6 +357,29 @@ async def test_a_review_still_succeeds_when_the_email_cannot_be_sent(
     assert result.document_count == 1
 
 
+# --- the scratch space ---------------------------------------------------
+
+
+async def test_a_finished_review_leaves_no_local_copies(worker, s3, settings, llm, multi_page_pdf_bytes):
+    """The bucket keeps the documents; the worker's disk only borrowed them."""
+    keys = stock_the_bucket(s3, settings, multi_page_pdf_bytes, 2)
+
+    await run(worker, keys)
+
+    assert list(settings.temp_pdf_path.iterdir()) == []
+
+
+async def test_a_failed_review_still_cleans_up(worker, s3, settings, llm, multi_page_pdf_bytes):
+    """A document that fails mid-review leaves its copy behind otherwise."""
+    keys = stock_the_bucket(s3, settings, multi_page_pdf_bytes, 1)
+    llm.error = RuntimeError("the model went away")
+
+    with pytest.raises(WorkflowFailureError):
+        await run(worker, keys)
+
+    assert list(settings.temp_pdf_path.iterdir()) == []
+
+
 # --- failures ------------------------------------------------------------
 
 

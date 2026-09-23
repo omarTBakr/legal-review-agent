@@ -8,6 +8,7 @@ from temporalio.exceptions import ActivityError
 # time has to be passed through rather than re-executed inside the sandbox.
 with workflow.unsafe.imports_passed_through():
     from activities.analyze_batch import analyze_batch
+    from activities.cleanup_scratch import cleanup_scratch
     from activities.download_pdf import download_pdf
     from activities.human_followup import human_followup
     from activities.merge_advice import merge_advice
@@ -17,9 +18,11 @@ with workflow.unsafe.imports_passed_through():
     from enums.RetryPolicy.LLMRetryPolicy import LLMRetryPolicy
     from enums.RetryPolicy.ParsingRetryPolicy import ParsingRetryPolicy
     from enums.RetryPolicy.StorageRetryPolicy import StorageRetryPolicy
+    from enums.RetryPolicy.StrictRetryPolicy import StrictRetryPolicy
     from enums.ReviewDecision import ReviewDecision
     from enums.TaskStatus import TaskStatus
     from schemas.analyze_batch import AnalyzeBatchInput
+    from schemas.cleanup_scratch import CleanupScratchInput
     from schemas.download_pdf import DownloadPdfInput
     from schemas.human_followup import HumanFollowupInput
     from schemas.legal_advice import LegalAdvice
@@ -109,6 +112,41 @@ class LegalReviewWorkflow:
             workflow.logger.warning("[task %s] report not emailed: %s", payload.task_id, result.reason)
 
     async def _review_one(self, payload: LegalReviewInput, pdf_key: str, gate: asyncio.Semaphore) -> DocumentAdvice:
+        local_files: list[str] = []
+
+        try:
+            return await self._review(payload, pdf_key, gate, local_files)
+        finally:
+            # whether it succeeded, failed or timed out, the scratch copies go:
+            # the bucket has the document, the worker's disk only had it to parse
+            await self._cleanup(payload, pdf_key, local_files)
+
+    async def _cleanup(self, payload: LegalReviewInput, pdf_key: str, paths: list[str]) -> None:
+        """
+        Removes the local copies once a document is done with them.
+
+        Behind a patch because it adds an activity to the run: a review that
+        started before this change has no such step in its history, and
+        replaying it against unpatched code would diverge and kill a workflow
+        that may have been waiting on a human for an hour.
+        """
+        if not paths or not workflow.patched("cleanup-scratch-v1"):
+            return
+
+        try:
+            await workflow.execute_activity(
+                cleanup_scratch,
+                CleanupScratchInput(task_id=payload.task_id, pdf_key=pdf_key, paths=paths),
+                start_to_close_timeout=STORAGE_TIMEOUT,
+                retry_policy=StrictRetryPolicy(),
+            )
+        except ActivityError:
+            # a review that produced its advice must not fail over a file
+            workflow.logger.warning("[task %s] could not clean up after %s", payload.task_id, pdf_key)
+
+    async def _review(
+        self, payload: LegalReviewInput, pdf_key: str, gate: asyncio.Semaphore, local_files: list[str]
+    ) -> DocumentAdvice:
         async with gate:
             fetched = await workflow.execute_activity(
                 download_pdf,
@@ -116,6 +154,8 @@ class LegalReviewWorkflow:
                 start_to_close_timeout=STORAGE_TIMEOUT,
                 retry_policy=StorageRetryPolicy(),
             )
+
+            local_files.append(fetched.local_path)
 
             split = await workflow.execute_activity(
                 split_pages,

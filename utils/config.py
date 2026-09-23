@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     legal_max_concurrent_pdfs: int = Field(10, description="How many PDFs the workflow processes at once")
     legal_pages_per_batch: int = Field(30, description="Pages per LLM call")
     legal_max_pdfs: int = Field(20, description="Most PDFs accepted in one request")
+    max_upload_bytes: int = Field(25 * 1024 * 1024, description="Largest single PDF the service accepts")
+    max_request_bytes: int = Field(100 * 1024 * 1024, description="Largest total upload in one request")
     human_input_timeout_seconds: float = Field(3600, description="How long to wait for a human before continuing")
 
     # emailed reports; with no SMTP_HOST the review simply does not send one

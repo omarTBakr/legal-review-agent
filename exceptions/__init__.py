@@ -10,6 +10,7 @@
     |     +-- UnsupportedFileTypeError
     |     +-- EmptyFileError
     |     +-- TooManyFilesError
+    |     +-- UploadTooLargeError
     |
     +-- StorageError
     |     +-- StorageConnectionError
@@ -66,7 +67,13 @@ from exceptions.storage import (
     StorageError,
     UploadError,
 )
-from exceptions.validation import EmptyFileError, TooManyFilesError, UnsupportedFileTypeError, ValidationError
+from exceptions.validation import (
+    EmptyFileError,
+    TooManyFilesError,
+    UnsupportedFileTypeError,
+    UploadTooLargeError,
+    ValidationError,
+)
 from exceptions.voice import (
     SynthesisError,
     TranscriptionError,
@@ -105,6 +112,7 @@ __all__ = [
     "TemporalConnectionError",
     "UnsupportedFileTypeError",
     "UploadError",
+    "UploadTooLargeError",
     "ValidationError",
     "VoiceConfigurationError",
     "VoiceError",
