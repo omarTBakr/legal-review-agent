@@ -6,6 +6,7 @@ the suite.
 """
 
 import asyncio
+import importlib
 import uuid
 
 import pytest
@@ -18,6 +19,7 @@ from activities import LEGAL_ACTIVITIES
 from enums.PromptName import PromptName
 from enums.ReviewDecision import ReviewDecision
 from enums.TaskStatus import TaskStatus
+from exceptions.notification import EmailSendError
 from schemas.legal_review import LegalReviewInput
 from workflows import LEGAL_WORKFLOWS
 from workflows.workflow_legal_review import LegalReviewWorkflow
@@ -293,6 +295,66 @@ async def test_each_document_is_published_as_soon_as_it_finishes(worker, s3, set
     await handle.signal(LegalReviewWorkflow.human_response, args=[keys[1], "English law"])
     result = await handle.result()
     assert result.document_count == 2
+
+
+# --- the emailed report --------------------------------------------------
+
+
+@pytest.fixture
+def mailbox(monkeypatch):
+    """Catches the report instead of sending it."""
+    module = importlib.import_module("activities.send_report")
+    sent = []
+
+    def fake_send(recipient, subject, html, settings, attachments=()):
+        sent.append({"recipient": recipient, "subject": subject, "html": html})
+
+    monkeypatch.setattr(module, "send_email", fake_send)
+    return sent
+
+
+async def test_the_report_is_emailed_when_an_address_was_given(worker, s3, settings, llm, multi_page_pdf_bytes, mailbox):
+    keys = stock_the_bucket(s3, settings, multi_page_pdf_bytes, 2)
+
+    await run(worker, keys, report_email="legal@acme.test", project_name="Acme")
+
+    assert len(mailbox) == 1
+    assert mailbox[0]["recipient"] == "legal@acme.test"
+    assert "Acme" in mailbox[0]["subject"]
+
+
+async def test_no_address_means_no_email(worker, s3, settings, llm, multi_page_pdf_bytes, mailbox):
+    keys = stock_the_bucket(s3, settings, multi_page_pdf_bytes, 1)
+
+    await run(worker, keys)
+
+    assert mailbox == []
+
+
+async def test_the_report_covers_every_document(worker, s3, settings, llm, multi_page_pdf_bytes, mailbox):
+    keys = stock_the_bucket(s3, settings, multi_page_pdf_bytes, 3)
+
+    await run(worker, keys, report_email="legal@acme.test")
+
+    for key in keys:
+        assert key in mailbox[0]["html"]
+
+
+async def test_a_review_still_succeeds_when_the_email_cannot_be_sent(
+    worker, s3, settings, llm, multi_page_pdf_bytes, monkeypatch
+):
+    """The advice is in the bucket; losing it over a mail server would be absurd."""
+    module = importlib.import_module("activities.send_report")
+
+    def refuse(*args, **kwargs):
+        raise EmailSendError("mailbox full")
+
+    monkeypatch.setattr(module, "send_email", refuse)
+    keys = stock_the_bucket(s3, settings, multi_page_pdf_bytes, 1)
+
+    result = await run(worker, keys, report_email="legal@acme.test")
+
+    assert result.document_count == 1
 
 
 # --- failures ------------------------------------------------------------

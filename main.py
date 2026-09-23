@@ -6,8 +6,11 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from routes.chat import router as chat_router
 from routes.legal import router as legal_router
 from routes.process import router as process_router
+from routes.projects import router as projects_router
+from routes.voice import router as voice_router
 from utils.config import get_setting
 from utils.logger import get_logger, setup_logging
 from workers.process_pdf_worker import create_process_pdf_worker
@@ -16,6 +19,24 @@ logger = get_logger(__name__)
 
 # the browser UI: static files, no build step
 UI_DIR = Path(__file__).parent / "ui"
+
+
+class FreshStaticFiles(StaticFiles):
+    """
+    Serves the UI with `Cache-Control: no-cache`.
+
+    Not "do not cache": the browser keeps the file and asks whether it changed,
+    which is a 304 and costs nothing. Without it a changed module can sit in
+    the memory cache behind an unchanged `index.html`, and the page runs half
+    the old code — a confusing way to lose an afternoon, and the files here are
+    a few kilobytes each.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+
+        return response
 
 
 @asynccontextmanager
@@ -48,6 +69,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Legal Review Agent", description="PDF to Markdown and LLM legal review pipelines", lifespan=lifespan)
 app.include_router(process_router)
 app.include_router(legal_router)
+app.include_router(projects_router)
+app.include_router(chat_router)
+app.include_router(voice_router)
 
 
 @app.get("/health")
@@ -61,7 +85,7 @@ async def index() -> RedirectResponse:
     return RedirectResponse(url="/ui/")
 
 
-app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
+app.mount("/ui", FreshStaticFiles(directory=UI_DIR, html=True), name="ui")
 
 
 def main():

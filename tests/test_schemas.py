@@ -6,8 +6,10 @@ import dataclasses
 import pytest
 from temporalio.converter import DataConverter
 
+from enums.RiskSeverity import RiskSeverity
 from schemas.download_md import DownloadMdInput, DownloadMdOutput
 from schemas.download_pdf import DownloadPdfInput, DownloadPdfOutput
+from schemas.key_risk import KeyRisk
 from schemas.parse_pdf import ParsePdfInput, ParsePdfOutput
 from schemas.process_pdf import ProcessPdfInput
 from schemas.process_pdf_result import ProcessPdfResult
@@ -40,6 +42,17 @@ SCHEMAS = [
         },
     ),
     (DownloadMdOutput, {"bucket": "mds", "local_path": "/tmp/a.md"}),
+    (
+        KeyRisk,
+        {
+            "description": "Unlimited liability",
+            "severity": RiskSeverity.HIGH,
+            "location": "clause 9",
+            "quote": "The Supplier's liability is unlimited.",
+            "page": 3,
+            "quote_verified": True,
+        },
+    ),
 ]
 
 
@@ -57,6 +70,18 @@ async def test_survives_temporal_serialisation(schema, fields):
     decoded = await converter.decode(payloads, [schema])
 
     assert decoded[0] == instance
+
+
+async def test_a_key_risk_stored_before_quotes_existed_still_loads():
+    """Workflows already running carry risks with no quote, page or verification."""
+    converter = DataConverter.default
+    old = KeyRisk(description="Unlimited liability", severity=RiskSeverity.HIGH, location="clause 9")
+    payloads = await converter.encode([{"description": "Unlimited liability", "severity": "high", "location": "clause 9"}])
+
+    [decoded] = await converter.decode(payloads, [KeyRisk])
+
+    assert decoded == old
+    assert decoded.quote == "" and decoded.page is None and decoded.quote_verified is False
 
 
 def test_stdlib_dataclasses_is_not_shadowed():

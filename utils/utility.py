@@ -87,6 +87,47 @@ def download_s3_file(bucket: str, key: str, destination: Path | str) -> Path:
     return destination
 
 
+def download_s3_bytes(bucket: str, key: str) -> bytes:
+    """
+    Reads an object straight into memory.
+
+    For the small JSON documents the project keeps in the bucket, where a
+    round trip through a local file would be pointless.
+    """
+    try:
+        return get_s3_client().get_object(Bucket=bucket, Key=key)["Body"].read()
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NoSuchBucket"):
+            raise ObjectNotFoundError(f"no such object: {bucket}/{key}") from exc
+        raise DownloadError(f"could not download {bucket}/{key}: {exc}") from exc
+    except BotoCoreError as exc:
+        raise StorageConnectionError(f"could not reach the object store: {exc}") from exc
+
+
+def list_s3_keys(bucket: str, prefix: str) -> list[str]:
+    """Every key under `prefix`, following the pagination boto3 hides behind a token."""
+    client = get_s3_client()
+    keys = []
+    token = None
+
+    try:
+        while True:
+            kwargs = {"Bucket": bucket, "Prefix": prefix}
+            if token:
+                kwargs["ContinuationToken"] = token
+
+            page = client.list_objects_v2(**kwargs)
+            keys.extend(item["Key"] for item in page.get("Contents", []))
+
+            if not page.get("IsTruncated"):
+                return keys
+            token = page.get("NextContinuationToken")
+    except ClientError as exc:
+        raise DownloadError(f"could not list {bucket}/{prefix}: {exc}") from exc
+    except BotoCoreError as exc:
+        raise StorageConnectionError(f"could not reach the object store: {exc}") from exc
+
+
 class RunArtifacts(NamedTuple):
     """Where one PDF's inputs and outputs live, for a single run."""
 
@@ -96,22 +137,27 @@ class RunArtifacts(NamedTuple):
     local_pdf: Path
 
 
-def build_run_artifacts(filename: str, settings: Settings) -> RunArtifacts:
+def build_run_artifacts(filename: str, settings: Settings, prefix: str = "") -> RunArtifacts:
     """
     Derives the object keys and the local PDF path for one run.
 
     The pdf and the markdown share a random run id so that two uploads of the
     same filename cannot overwrite each other in the buckets. That same id is
     the task id: it names the workflow run and is logged by every activity.
+
+    `prefix` puts the keys inside a project's folder. The local scratch path
+    keeps the bare filename: the prefix organises the bucket, not the worker's
+    disk.
     """
     stem = Path(filename).stem or "document"
     run_id = uuid.uuid4().hex[:8]
-    pdf_key = f"{stem}-{run_id}.pdf"
-    md_key = f"{stem}-{run_id}.md"
+    name = f"{stem}-{run_id}"
+    pdf_key = f"{prefix}{name}.pdf"
+    md_key = f"{prefix}{name}.md"
 
     return RunArtifacts(
         task_id=run_id,
         pdf_key=pdf_key,
         md_key=md_key,
-        local_pdf=settings.temp_pdf_path / pdf_key,
+        local_pdf=settings.temp_pdf_path / f"{name}.pdf",
     )

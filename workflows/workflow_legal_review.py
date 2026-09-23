@@ -2,6 +2,7 @@ import asyncio
 from datetime import timedelta
 
 from temporalio import workflow
+from temporalio.exceptions import ActivityError
 
 # The workflow sandbox re-imports this module; anything doing real I/O at import
 # time has to be passed through rather than re-executed inside the sandbox.
@@ -10,6 +11,7 @@ with workflow.unsafe.imports_passed_through():
     from activities.download_pdf import download_pdf
     from activities.human_followup import human_followup
     from activities.merge_advice import merge_advice
+    from activities.send_report import send_report
     from activities.split_pages import split_pages
     from activities.upload_advice import upload_advice
     from enums.RetryPolicy.LLMRetryPolicy import LLMRetryPolicy
@@ -23,6 +25,7 @@ with workflow.unsafe.imports_passed_through():
     from schemas.legal_advice import LegalAdvice
     from schemas.legal_review import DocumentAdvice, LegalReviewInput, LegalReviewResult
     from schemas.merge_advice import MergeAdviceInput
+    from schemas.send_report import SendReportInput
     from schemas.split_pages import SplitPagesInput
     from schemas.upload_advice import UploadAdviceInput
 
@@ -30,6 +33,7 @@ STORAGE_TIMEOUT = timedelta(minutes=1)
 SPLIT_TIMEOUT = timedelta(minutes=10)
 # a model call is slow and the policy already backs off; leave room for retries
 LLM_TIMEOUT = timedelta(minutes=10)
+EMAIL_TIMEOUT = timedelta(minutes=2)
 
 
 @workflow.defn
@@ -69,13 +73,46 @@ class LegalReviewWorkflow:
 
         workflow.logger.info("[task %s] finished %d document(s)", payload.task_id, len(documents))
 
+        await self._email_report(payload, list(documents))
+
         return LegalReviewResult(task_id=payload.task_id, documents=list(documents))
+
+    async def _email_report(self, payload: LegalReviewInput, documents: list[DocumentAdvice]) -> None:
+        """
+        Emails the finished review, when an address was given.
+
+        A review that was completed but could not be emailed is still a
+        completed review: the advice is in the bucket and the API serves it.
+        Failing the workflow here would throw that away over a mail server, so
+        the failure is logged and swallowed once Temporal's retries are spent.
+        """
+        if not payload.report_email:
+            return
+
+        try:
+            result = await workflow.execute_activity(
+                send_report,
+                SendReportInput(
+                    task_id=payload.task_id,
+                    recipient=payload.report_email,
+                    documents=documents,
+                    project_name=payload.project_name,
+                ),
+                start_to_close_timeout=EMAIL_TIMEOUT,
+                retry_policy=StorageRetryPolicy(),
+            )
+        except ActivityError:
+            workflow.logger.exception("[task %s] the report could not be emailed", payload.task_id)
+            return
+
+        if not result.sent:
+            workflow.logger.warning("[task %s] report not emailed: %s", payload.task_id, result.reason)
 
     async def _review_one(self, payload: LegalReviewInput, pdf_key: str, gate: asyncio.Semaphore) -> DocumentAdvice:
         async with gate:
             fetched = await workflow.execute_activity(
                 download_pdf,
-                DownloadPdfInput(task_id=payload.task_id, key=pdf_key),
+                DownloadPdfInput(task_id=payload.task_id, key=pdf_key, bucket=payload.bucket),
                 start_to_close_timeout=STORAGE_TIMEOUT,
                 retry_policy=StorageRetryPolicy(),
             )
@@ -87,6 +124,7 @@ class LegalReviewWorkflow:
                     pdf_key=pdf_key,
                     local_pdf=fetched.local_path,
                     pages_per_batch=payload.pages_per_batch,
+                    md_bucket=payload.bucket,
                 ),
                 start_to_close_timeout=SPLIT_TIMEOUT,
                 retry_policy=ParsingRetryPolicy(),
@@ -109,7 +147,7 @@ class LegalReviewWorkflow:
 
         stored = await workflow.execute_activity(
             upload_advice,
-            UploadAdviceInput(task_id=payload.task_id, pdf_key=pdf_key, advice=advice),
+            UploadAdviceInput(task_id=payload.task_id, pdf_key=pdf_key, advice=advice, bucket=payload.bucket),
             start_to_close_timeout=STORAGE_TIMEOUT,
             retry_policy=StorageRetryPolicy(),
         )

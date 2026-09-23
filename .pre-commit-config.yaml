@@ -19,6 +19,10 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-added-large-files
+        # a lockfile is legitimately large: voice/uv.lock is ~700 KB because
+        # torch and transformers bring hundreds of pinned packages with them,
+        # and it has to be committed for the build to be reproducible
+        args: [--maxkb=1024]
       - id: detect-private-key
 
   # runs the suite locally before the commit is created

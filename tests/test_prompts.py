@@ -31,10 +31,18 @@ def test_every_prompt_has_a_system_and_a_template(name):
     assert prompt.user_template.strip()
 
 
-@pytest.mark.parametrize("name", list(PromptName))
-def test_every_prompt_asks_for_json(name):
-    """All three replies are parsed as JSON, so all three must ask for it."""
+@pytest.mark.parametrize("name", [name for name in PromptName if get_prompt(name).expects_json])
+def test_a_prompt_parsed_as_json_asks_for_json(name):
+    """Those replies go through from_model, so they have to be JSON."""
     assert "json" in get_prompt(name).system.lower()
+
+
+def test_the_chat_prompt_wants_prose():
+    """Its answer is read aloud, so a JSON object would be absurd."""
+    prompt = get_prompt(PromptName.REVIEW_CHAT)
+
+    assert prompt.expects_json is False
+    assert "no json" in prompt.system.lower()
 
 
 def test_rendering_fills_the_template():

@@ -6,6 +6,7 @@ from interfaces import get_llm
 from prompts import get_prompt
 from schemas.analyze_batch import AnalyzeBatchInput, AnalyzeBatchOutput
 from schemas.legal_advice import LegalAdvice
+from utils.evidence import verify_risks
 
 
 @activity.defn
@@ -42,12 +43,26 @@ async def analyze_batch(payload: AnalyzeBatchInput) -> AnalyzeBatchOutput:
         activity.logger.error("[task %s] unusable advice for %s: %s", payload.task_id, payload.pdf_key, exc)
         raise LLMResponseError(f"advice for {payload.pdf_key} {batch.label} was unusable: {exc}") from exc
 
+    # nor is anything it says about where a risk came from
+    advice.key_risks = verify_risks(advice.key_risks, batch.markdown)
+    unverified = sum(not risk.quote_verified for risk in advice.key_risks)
+
+    if unverified:
+        activity.logger.warning(
+            "[task %s] %s %s: %d quote(s) not found in the excerpt",
+            payload.task_id,
+            payload.pdf_key,
+            batch.label,
+            unverified,
+        )
+
     activity.logger.info(
-        "[task %s] %s %s: %d risk(s)%s",
+        "[task %s] %s %s: %d risk(s), %d unverified%s",
         payload.task_id,
         payload.pdf_key,
         batch.label,
         len(advice.key_risks),
+        unverified,
         ", needs a human" if advice.needs_human else "",
     )
 

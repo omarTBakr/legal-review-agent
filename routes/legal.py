@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Body, File, HTTPException, Response, UploadFile
+import asyncio
+
+from fastapi import APIRouter, Body, File, Form, HTTPException, Response, UploadFile
 from temporalio.service import RPCError, RPCStatusCode
 
 from enums.TaskStatus import TaskStatus
+from exceptions.storage import ObjectNotFoundError
 from exceptions.validation import TooManyFilesError
 from schemas.legal_review import LegalReviewInput
+from schemas.project import Project
 from utils.config import get_setting
 from utils.http_errors import http_errors
 from utils.legal_responses import (
@@ -14,6 +18,7 @@ from utils.legal_responses import (
     status_response,
 )
 from utils.logger import get_logger
+from utils.projects import get_project, record_review, validate_email
 from utils.store_upload import store_uploads, validate_upload
 from utils.temporal_client import get_temporal_client
 from utils.workflow_ids import legal_workflow_id_for
@@ -27,12 +32,22 @@ ACCEPTED = 202
 
 
 @router.post("")
-async def submit(response: Response, files: list[UploadFile] = File(...)) -> dict:
+async def submit(
+    response: Response,
+    files: list[UploadFile] = File(...),
+    project_id: str = Form(""),
+    email: str = Form(""),
+) -> dict:
     """
     Accepts several PDFs, stores them and starts the legal review workflow.
 
     Returns 202 and a task id straight away; poll GET /legal/{task_id}, which
     reports `awaiting_human` when the model has a question for you.
+
+    With `project_id`, the documents are filed inside that project's folder and
+    the review is recorded against it. `email` overrides the project's own
+    address for this review; either way, an address means the finished report
+    is emailed there.
     """
     settings = get_setting()
 
@@ -40,13 +55,17 @@ async def submit(response: Response, files: list[UploadFile] = File(...)) -> dic
         if len(files) > settings.legal_max_pdfs:
             raise TooManyFilesError(f"at most {settings.legal_max_pdfs} documents per request, got {len(files)}")
 
+        project = await _load_project(project_id, settings) if project_id else None
+        report_email = validate_email(email) or (project.email if project else "")
+
         uploads = []
         for upload in files:
             pdf = await upload.read()
             validate_upload(upload.filename, pdf)
             uploads.append((upload.filename, pdf))
 
-        task_id, pdf_keys = await store_uploads(uploads, settings)
+        bucket = settings.s3_projects if project else ""
+        task_id, pdf_keys = await store_uploads(uploads, settings, project.prefix if project else "", bucket)
 
         client = await get_temporal_client()
         handle = await client.start_workflow(
@@ -57,6 +76,10 @@ async def submit(response: Response, files: list[UploadFile] = File(...)) -> dic
                 pages_per_batch=settings.legal_pages_per_batch,
                 max_concurrent_pdfs=settings.legal_max_concurrent_pdfs,
                 human_input_timeout_seconds=settings.human_input_timeout_seconds,
+                report_email=report_email,
+                project_id=project.id if project else "",
+                project_name=project.name if project else "",
+                bucket=bucket,
             ),
             id=legal_workflow_id_for(task_id),
             task_queue=settings.legal_task_queue,
@@ -64,8 +87,21 @@ async def submit(response: Response, files: list[UploadFile] = File(...)) -> dic
 
         logger.info("[task %s] started %s for %d document(s)", task_id, handle.id, len(pdf_keys))
 
+        if project:
+            # recorded after the workflow starts, so a record never points at a
+            # review that was never begun
+            await asyncio.to_thread(record_review, project.id, task_id, handle.id, pdf_keys, settings)
+
     response.status_code = ACCEPTED
-    return accepted_response(task_id, pdf_keys, settings.s3_pdf_bucket)
+    return accepted_response(task_id, pdf_keys, bucket or settings.s3_pdf_bucket, project.id if project else "")
+
+
+async def _load_project(project_id: str, settings) -> Project:
+    """The project a review is being filed into, or a 404."""
+    try:
+        return await asyncio.to_thread(get_project, project_id, settings)
+    except ObjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"no such project: {project_id}") from exc
 
 
 @router.get("/{task_id}")

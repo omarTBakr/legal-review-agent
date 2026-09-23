@@ -2,6 +2,8 @@
 of the request and the handling of each failure are covered without the network
 or a bill."""
 
+import json
+
 import httpx
 import pytest
 
@@ -33,6 +35,109 @@ def client_returning(handler, settings) -> OpenRouterLLM:
 
 def reply(content: str, status: int = 200) -> httpx.Response:
     return httpx.Response(status, json={"choices": [{"message": {"content": content}}]})
+
+
+def events(*chunks: str, done: bool = True) -> bytes:
+    """The server-sent events OpenRouter would send for those deltas."""
+    lines = [f'data: {json.dumps({"choices": [{"delta": {"content": chunk}}]})}' for chunk in chunks]
+    if done:
+        lines.append("data: [DONE]")
+
+    return ("\n\n".join(lines) + "\n\n").encode()
+
+
+async def collect(llm, prompt_name=PromptName.REVIEW_CHAT, **variables):
+    return [chunk async for chunk in llm.stream(get_prompt(prompt_name), **(variables or CHAT_VARS))]
+
+
+CHAT_VARS = {"advice": "...", "pages": "...", "history": "", "question": "What is the cap?", "document_count": 1}
+
+
+# --- streaming -----------------------------------------------------------
+
+
+async def test_the_reply_arrives_in_pieces(settings):
+    llm = client_returning(lambda request: httpx.Response(200, content=events("Liability ", "is ", "capped.")), settings)
+
+    assert await collect(llm) == ["Liability ", "is ", "capped."]
+
+
+async def test_streaming_asks_for_a_stream(settings):
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, content=events("ok"))
+
+    await collect(client_returning(handler, settings))
+
+    assert seen["stream"] is True
+
+
+async def test_the_done_sentinel_and_keepalives_are_not_content(settings):
+    """Everything on the wire is not text; only the deltas are."""
+    body = b": keep-alive\n\n" + events("real text") + b'data: {"choices": [{"finish_reason": "stop"}]}\n\n'
+    llm = client_returning(lambda request: httpx.Response(200, content=body), settings)
+
+    assert await collect(llm) == ["real text"]
+
+
+async def test_a_malformed_event_does_not_end_the_answer(settings):
+    body = b"data: {not json}\n\n" + events("the rest arrived")
+    llm = client_returning(lambda request: httpx.Response(200, content=body), settings)
+
+    assert await collect(llm) == ["the rest arrived"]
+
+
+async def test_a_refusal_while_streaming_is_reported(settings):
+    llm = client_returning(lambda request: httpx.Response(429, text="slow down"), settings)
+
+    with pytest.raises(LLMRateLimitError):
+        await collect(llm)
+
+
+async def test_an_unreachable_service_while_streaming_is_reported(settings):
+    def handler(request):
+        raise httpx.ConnectError("refused")
+
+    with pytest.raises(LLMError):
+        await collect(client_returning(handler, settings))
+
+
+async def test_a_provider_that_cannot_stream_still_satisfies_the_interface(settings, llm):
+    """The default implementation yields the whole reply as one piece."""
+    llm.script(PromptName.REVIEW_CHAT, "One piece.")
+
+    assert [chunk async for chunk in llm.stream(get_prompt(PromptName.REVIEW_CHAT), **CHAT_VARS)] == ["One piece."]
+
+
+async def test_a_prose_prompt_does_not_demand_a_json_object(settings):
+    """The chat answer is read aloud; response_format would wrap it in an object."""
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        return reply("The liability cap is twelve months of fees (p. 7).")
+
+    llm = client_returning(handler, settings)
+
+    await llm.complete(get_prompt(PromptName.REVIEW_CHAT), advice="...", pages="...", history="", question="?", document_count=1)
+
+    assert "response_format" not in seen
+
+
+async def test_a_json_prompt_still_asks_for_json(settings):
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        return reply('{"summary": "ok"}')
+
+    llm = client_returning(handler, settings)
+
+    await llm.complete(get_prompt(PromptName.LEGAL_ADVICE), **PROMPT_VARS)
+
+    assert seen["response_format"] == {"type": "json_object"}
 
 
 async def test_a_successful_call_returns_the_content(settings):

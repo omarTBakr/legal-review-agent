@@ -1,5 +1,6 @@
 import json
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 
 from json_repair import repair_json
 
@@ -21,6 +22,21 @@ class LLMInterface(ABC):
     @abstractmethod
     async def complete(self, prompt: Prompt, **variables) -> str:
         """Renders the prompt, sends it, and returns the raw reply."""
+
+    async def stream(self, prompt: Prompt, **variables) -> AsyncIterator[str]:
+        """
+        The reply as it is written, piece by piece.
+
+        Only worth it where someone is reading along — the chat answers. The
+        pipeline's own calls want the whole reply validated before anything is
+        done with it, so they keep using `complete`.
+
+        The default implementation waits for the whole reply and yields it in
+        one piece, so a provider that cannot stream, and the fakes in the
+        tests, still satisfy the interface. Read it as "at least one chunk",
+        not "many".
+        """
+        yield await self.complete(prompt, **variables)
 
     async def complete_json(self, prompt: Prompt, **variables) -> dict:
         """

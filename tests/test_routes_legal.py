@@ -15,6 +15,7 @@ from main import app
 from schemas.key_risk import KeyRisk
 from schemas.legal_advice import LegalAdvice
 from schemas.legal_review import DocumentAdvice, LegalReviewResult
+from utils.projects import create_project, list_reviews
 
 RESULT = LegalReviewResult(
     task_id="abc123",
@@ -111,9 +112,95 @@ def client(s3, temporal):
     return TestClient(app)
 
 
-def submit(client, pdf_bytes, count=2):
+def submit(client, pdf_bytes, count=2, **data):
     files = [("files", (f"contract{i}.pdf", pdf_bytes, "application/pdf")) for i in range(count)]
-    return client.post("/legal", files=files)
+    return client.post("/legal", files=files, data=data or None)
+
+
+# --- POST /legal, inside a project ---------------------------------------
+
+
+def test_documents_are_filed_under_the_project(client, pdf_bytes, s3, settings):
+    project = create_project("Acme", settings)
+
+    body = submit(client, pdf_bytes, project_id=project.id).json()
+
+    assert body["project_id"] == project.id
+    assert all(key.startswith(project.prefix) for key in body["pdf_keys"])
+
+
+def test_a_projects_documents_go_to_the_projects_bucket(client, pdf_bytes, s3, settings):
+    """Everything a project owns lives in one bucket, so one rule covers it."""
+    project = create_project("Acme", settings)
+
+    body = submit(client, pdf_bytes, project_id=project.id).json()
+
+    assert body["pdf_bucket"] == settings.s3_projects
+    for key in body["pdf_keys"]:
+        assert (settings.s3_projects, key) in s3.objects
+
+
+def test_the_workflow_is_told_which_bucket_to_read_from(client, pdf_bytes, s3, settings, temporal):
+    """The activities take the bucket as data rather than assuming one."""
+    project = create_project("Acme", settings)
+
+    submit(client, pdf_bytes, project_id=project.id)
+
+    assert temporal.calls[0]["arg"].bucket == settings.s3_projects
+
+
+def test_a_review_without_a_project_uses_the_pipeline_buckets(client, pdf_bytes, s3, settings, temporal):
+    submit(client, pdf_bytes)
+
+    assert temporal.calls[0]["arg"].bucket == ""
+    assert [bucket for bucket, _ in s3.objects] == [settings.s3_pdf_bucket] * 2
+
+
+def test_the_review_is_recorded_against_the_project(client, pdf_bytes, s3, settings):
+    project = create_project("Acme", settings)
+
+    body = submit(client, pdf_bytes, project_id=project.id).json()
+
+    [review] = list_reviews(project.id, settings)
+    assert review.task_id == body["task_id"]
+    assert review.pdf_keys == body["pdf_keys"]
+
+
+def test_the_project_email_becomes_the_report_address(client, pdf_bytes, s3, settings, temporal):
+    project = create_project("Acme", settings, email="legal@acme.test")
+
+    submit(client, pdf_bytes, project_id=project.id)
+
+    payload = temporal.calls[0]["arg"]
+    assert payload.report_email == "legal@acme.test"
+    assert payload.project_name == "Acme"
+
+
+def test_an_email_on_the_request_overrides_the_project(client, pdf_bytes, s3, settings, temporal):
+    project = create_project("Acme", settings, email="legal@acme.test")
+
+    submit(client, pdf_bytes, project_id=project.id, email="someone@else.test")
+
+    assert temporal.calls[0]["arg"].report_email == "someone@else.test"
+
+
+def test_a_review_without_a_project_still_works(client, pdf_bytes, temporal):
+    body = submit(client, pdf_bytes).json()
+
+    assert body["project_id"] == ""
+    assert all("/" not in key for key in body["pdf_keys"])
+    assert temporal.calls[0]["arg"].report_email == ""
+
+
+def test_an_unknown_project_is_a_404(client, pdf_bytes):
+    assert submit(client, pdf_bytes, project_id="nothing-here").status_code == 404
+
+
+def test_a_bad_email_is_rejected_before_anything_is_stored(client, pdf_bytes, s3, settings):
+    response = submit(client, pdf_bytes, email="not-an-address")
+
+    assert response.status_code == 400
+    assert not [key for bucket, key in s3.objects if bucket == settings.s3_pdf_bucket]
 
 
 # --- POST /legal ---------------------------------------------------------
@@ -232,7 +319,14 @@ def test_status_when_completed_returns_the_advice(client, temporal):
     document = body["documents"][0]
     assert document["summary"] == "A services agreement."
     assert document["key_risks"] == [
-        {"description": "Unlimited liability", "severity": "high", "location": "clause 9"},
+        {
+            "description": "Unlimited liability",
+            "severity": "high",
+            "location": "clause 9",
+            "quote": "",
+            "page": None,
+            "quote_verified": False,
+        },
     ]
     assert document["review_decision"] == "unreviewed_timeout"
     assert document["needs_attention"] is True

@@ -16,15 +16,16 @@ async def download_pdf(payload: DownloadPdfInput) -> DownloadPdfOutput:
     the other activities in flight.
     """
     settings = get_setting()
+    bucket = payload.bucket or settings.s3_pdf_bucket
 
-    activity.logger.info("[task %s] downloading pdf %s/%s", payload.task_id, settings.s3_pdf_bucket, payload.key)
+    activity.logger.info("[task %s] downloading pdf %s/%s", payload.task_id, bucket, payload.key)
 
     try:
-        local_path = await asyncio.to_thread(download_s3_file, settings.s3_pdf_bucket, payload.key, settings.temp_pdf_path)
+        local_path = await asyncio.to_thread(download_s3_file, bucket, payload.key, settings.temp_pdf_path)
     except Exception:
         activity.logger.exception("[task %s] failed to download pdf %s", payload.task_id, payload.key)
         raise
 
     activity.logger.info("[task %s] downloaded pdf to %s", payload.task_id, local_path)
 
-    return DownloadPdfOutput(bucket=settings.s3_pdf_bucket, local_path=str(local_path))
+    return DownloadPdfOutput(bucket=bucket, local_path=str(local_path))

@@ -6,7 +6,7 @@ from schemas.legal_review import LegalReviewResult
 from utils.workflow_ids import legal_workflow_id_for
 
 
-def accepted_response(task_id: str, pdf_keys: list[str], pdf_bucket: str) -> dict:
+def accepted_response(task_id: str, pdf_keys: list[str], pdf_bucket: str, project_id: str = "") -> dict:
     """The 202 body: what was stored, and the id to poll with."""
     return {
         "status": TaskStatus.PROCESSING.value,
@@ -15,6 +15,7 @@ def accepted_response(task_id: str, pdf_keys: list[str], pdf_bucket: str) -> dic
         "pdf_bucket": pdf_bucket,
         "pdf_keys": pdf_keys,
         "pdf_count": len(pdf_keys),
+        "project_id": project_id,
     }
 
 
@@ -24,10 +25,7 @@ def advice_body(pdf_key: str, advice) -> dict:
         "pdf_key": pdf_key,
         "s3_path": advice.s3_path,
         "summary": advice.summary,
-        "key_risks": [
-            {"description": risk.description, "severity": risk.severity.value, "location": risk.location}
-            for risk in advice.key_risks
-        ],
+        "key_risks": [risk.to_dict() for risk in advice.key_risks],
         "review_decision": advice.review_decision.value,
         "needs_attention": advice.review_decision.needs_attention,
     }

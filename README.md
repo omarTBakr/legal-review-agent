@@ -13,6 +13,11 @@ A FastAPI service with two Temporal pipelines over S3-compatible object storage:
   the resulting Markdown, and pulls that Markdown back onto local disk for
   inspection.
 
+Reviews can be filed in a **project**: a folder in the bucket with a name, an
+optional description and an optional address the finished report is emailed to.
+A finished review can then be **asked questions**, by typing or out loud, with
+the speech models running in a service of their own.
+
 Each pipeline is a Temporal workflow on its own task queue, served by its own
 worker, and a browser UI served by the API drives the legal review.
 
@@ -22,6 +27,9 @@ worker, and a browser UI served by the API drives the legal review.
 - [How it works](#how-it-works)
   - [PDF to Markdown](#pdf-to-markdown)
   - [Legal review](#legal-review)
+  - [Projects](#projects)
+  - [The emailed report](#the-emailed-report)
+  - [Asking questions, by voice](#asking-questions-by-voice)
 - [Layout](#layout)
   - [Architecture](#architecture)
   - [Directory tree](#directory-tree)
@@ -37,9 +45,16 @@ worker, and a browser UI served by the API drives the legal review.
   - [`GET /health`](#get-health)
   - [`POST /process`](#post-process)
   - [`GET /process/{task_id}`](#get-processtask_id)
+  - [`POST /projects`](#post-projects)
+  - [`GET /projects`](#get-projects)
+  - [`GET /projects/{project_id}`](#get-projectsproject_id)
+  - [`GET /projects/{project_id}/reviews/{task_id}`](#get-projectsproject_idreviewstask_id)
   - [`POST /legal`](#post-legal)
   - [`GET /legal/{task_id}`](#get-legaltask_id)
   - [`POST /legal/{task_id}/respond`](#post-legaltask_idrespond)
+  - [`POST /projects/{project_id}/reviews/{task_id}/chat`](#post-projectsproject_idreviewstask_idchat)
+  - [`POST /voice/transcribe`](#post-voicetranscribe)
+  - [`POST /voice/speak`](#post-voicespeak)
   - [Errors](#errors)
   - [Task ids](#task-ids)
 - [Tests](#tests)
@@ -145,6 +160,19 @@ with an answer is `human_approved`; advice that never needed a human is
 moment it is stored, so `GET /legal/{task_id}` returns finished documents under
 `results` while the rest of the review is still running.
 
+**Evidence.** Every risk must quote the passage it rests on, word for word,
+and give its page. Each page of a batch opens with a `<!-- page N -->` marker,
+so the model can cite real page numbers. The quote is then checked in code
+(`utils/evidence.py`), not taken on trust. It counts as verified only if it
+appears in the batch it came from, after both sides are normalized (case,
+whitespace, curly quotes, Markdown), or if a close fuzzy match covers 90% of
+it. The page where it was found replaces the page the model claimed. Quotes
+under 15 characters never count. A quote that can't be found keeps its risk
+but is marked `quote_verified: false`, and the UI flags it as an "Unverified
+quote". The merge and the human follow-up never see the pages, so a risk stays
+verified after them only if its quote is one that was already verified, or
+part of one.
+
 **Batching and the model.** Each batch of up to `LEGAL_PAGES_PER_BATCH` pages
 (default 30) is one model call, plus one merge call per document with more
 than one batch. A reply may be up to `LLM_MAX_TOKENS` long (default 16000),
@@ -168,6 +196,161 @@ instructions reliably. Activities ask `interfaces.get_llm()` for the model and
 never import a vendor client, so another provider is one more `LLMInterface`
 implementation registered in `interfaces/llm_factory.py`.
 
+### Projects
+
+A project is a folder in `S3_PROJECTS` that a client's reviews are filed
+under. `POST /projects` takes a name, an optional description and an optional
+email address, and writes the manifest that brings the folder into being — S3
+has no directories, so a prefix exists because objects use it:
+
+```text
+projects/                               the bucket
+└── acme-ndas-b4b731b4/
+    ├── project.json                    name, description, email, created_at
+    ├── contract-a1b2c3d4.pdf           the documents uploaded into it
+    ├── contract-a1b2c3d4.md            their parsed text
+    ├── contract-a1b2c3d4.advice.json   and their advice
+    ├── reviews/
+    │   └── a1b2c3d4.json               task id, workflow id, pdf keys, when
+    └── chats/
+        ├── a1b2c3d4.json               the questions asked about that review
+        └── a1b2c3d4/audio/0-question.wav
+```
+
+Everything a project owns is in that one bucket, so a single lifecycle rule
+covers it and removing a client is one prefix to delete. The documents of a
+review outside a project still go to `S3_PDF_BUCKET`, `S3_PARSED_MDS` and
+`S3_LEGAL_ADVICE`, as does the PDF-to-Markdown pipeline, which has no project.
+Which bucket to read or write is passed to each activity rather than assumed,
+so a worker never has to guess from the shape of a key.
+
+The id is the name's slug plus a short random suffix, so two projects called
+"NDAs" cannot share a folder. Each review is its own object rather than a list
+inside the manifest, so two submissions at the same moment cannot overwrite
+each other's record.
+
+`POST /legal` takes an optional `project_id`: the documents are stored under
+that prefix in the projects bucket, their text and advice follow them there,
+and the review is recorded against the project.
+
+The bucket is what remembers a project, and that matters beyond tidiness.
+Temporal deletes a closed workflow's history when its retention period passes,
+after which `GET /legal/{task_id}` reports 404 —
+`GET /projects/{project_id}/reviews/{task_id}` still answers, because it reads
+the stored advice rather than the workflow. The browser UI falls back to it
+automatically for a review it knows the project of.
+
+### The emailed report
+
+A review with an address — the project's, or one given for that review — emails
+its report as the last step of the workflow: the totals by severity, then each
+document with its decision, summary and risks, each risk quoting the passage it
+rests on, with the full advice JSON attached. Every value the model produced is
+escaped before it goes in.
+
+`activities/send_report.py` sends it, so Temporal retries a mail server that is
+briefly unreachable. Two failures are deliberately not the same:
+
+- **no SMTP configured** is reported, not raised. The review succeeded, and
+  retrying cannot conjure a mail server.
+- **a server that refuses the message** raises, and `StorageRetryPolicy()`
+  gives it three attempts.
+
+Either way the review still completes. The advice is in the bucket and the API
+serves it; losing a finished review over an email would be absurd.
+
+### Asking questions, by voice
+
+A finished review in a project has a chat panel: ask what the liability cap is,
+whether there is a non-compete, what to negotiate first. The answer comes from
+the stored advice plus the pages of the documents that match the question, and
+cites the page it used.
+
+```mermaid
+flowchart LR
+    reviewer([Reviewer]) -->|"speaks"| ui["Browser UI"]
+    ui -->|"16 kHz mono WAV"| api["FastAPI API"]
+    api -->|"POST /transcribe"| voice["Voice service<br/>:8100"]
+    voice -->|"text"| api
+    api -->|"advice + matching pages"| llm["OpenRouter"]
+    llm -->|"answer"| api
+    api -->|"POST /speak"| voice
+    voice -->|"WAV"| api
+    api -->|"answer + audio"| ui
+```
+
+**Which pages.** `utils/retrieval.py` scores every page of every document in
+the review against the question by term overlap and takes the best ones within
+`CHAT_CONTEXT_CHARACTERS`. It rides on the `<!-- page N -->` markers the
+batching already writes, so no index is built, nothing has to be kept in sync
+with the bucket, and you can see why a page was chosen.
+
+When nothing matches, the documents themselves are sent instead, from the
+beginning, with the budget shared between them so a long contract cannot crowd
+out the short one beside it — and the model is told that is what it is reading.
+A question worded nothing like the contract ("is this worth signing?") would
+otherwise be answered from the summary alone, which is thinner than the
+document being asked about. A question that *did* match keeps just its pages,
+and the citation stays honest.
+
+The documents' text is stored during the review by `split_pages`, which already
+has it parsed, so the review pays for it once. A document reviewed before this
+existed still answers from its advice, it simply cannot be quoted.
+
+**The thread** lives at `projects/<id>/chats/<task_id>.json`, beside the review
+rather than in whichever browser asked, so it survives a reload and outlives
+Temporal's retention window. Chat is offered on project reviews only: a review
+started outside a project has no durable home to read back from.
+
+**Playback** has play, pause and resume on each answer, and a speed slider
+beside the read-aloud toggle, 0.5× to 2×, remembered per browser. The slider
+moves what is playing right now, not just the next clip: drag it mid-answer and
+the voice speeds up under your hand, with the pitch held so it still sounds
+like the same speaker.
+
+**The word being read is highlighted in yellow**, and not by guesswork: Kokoro
+reports the start and end of every word it speaks, so the highlight lands on
+the word being said and moves off when the voice does — through a pause, a
+resume and a change of speed, because it follows the audio's own clock. The
+timings are stored beside the recording, so a replay follows along too. An
+engine that cannot report them (Qwen3-TTS cannot) simply does not highlight; a
+marker drifting a sentence behind the voice would be worse than none.
+It is the most effective thing available against a long answer: warm, the model
+generates a little faster than realtime, so most of the wait is the length of
+the answer itself rather than the synthesis. The numbers are in
+[voice/README.md](voice/README.md#speed).
+
+**Speech** runs in `voice/`, its own uv project with its own image, because
+torch and transformers are gigabytes and the API and workers have no use for
+them. The browser records, decodes and resamples to 16 kHz mono WAV itself, so
+no ffmpeg is needed server-side, and the API proxies both directions so the
+browser never talks to the GPU box. With the voice service stopped, typing
+still works — the microphone is an input method, not the feature. See
+[voice/README.md](voice/README.md).
+
+**The models** are `Qwen/Qwen3-ASR-0.6B` for listening and
+`oddadmix/Kokoro-7M-Distill` for speaking, both Apache 2.0. The voice is a
+7.5M-parameter distillation: 31 ms of GPU work for nine seconds of speech,
+about 40 MB of VRAM, roughly three hundred times faster than listening to it.
+`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` remains behind `TTS_ENGINE=qwen` for the
+nine languages Kokoro does not speak. `VOICE_QUANTIZATION` defaults to `4bit`,
+which the recogniser takes (1.2 GB of VRAM instead of 2.5). Three notes
+for anyone retracing the choice. Ollama serves language models only and cannot
+host either of these. Coqui XTTS v2 — the obvious TTS candidate — is released
+under a non-commercial licence by a company that shut down in 2024. And the two
+Qwen packages each pin `transformers` to an exact patch, so one of the pins has
+to win; `voice/pyproject.toml` says which and why.
+
+**The recordings** are kept beside the thread, at
+`<project_id>/chats/<task_id>/audio/<turn>-question.wav` and `-answer.wav` in
+the projects bucket. S3 rather than a database or a local file: they are blobs, the
+bucket is already where everything durable here lives, a local file dies with
+the container, and a database row would only hold a pointer to the bucket
+anyway. Playing an answer again reads the stored clip instead of synthesising
+it twice. `STORE_AUDIO=false` keeps the transcript and drops the audio — it is
+a recording of someone discussing a client's contract, which is worth being
+deliberate about.
+
 ## Layout
 
 ### Architecture
@@ -175,7 +358,7 @@ implementation registered in `interfaces/llm_factory.py`.
 ```mermaid
 flowchart LR
     reviewer([Reviewer]) --> ui["Browser UI<br/>/ui"]
-    ui -->|"POST /legal<br/>GET /legal/{task_id}<br/>POST /legal/{task_id}/respond"| api["FastAPI API<br/>:8000"]
+    ui -->|"POST /projects<br/>POST /legal<br/>GET /legal/{task_id}<br/>POST /legal/{task_id}/respond"| api["FastAPI API<br/>:8000"]
     scripts([Scripts]) -->|"POST /process<br/>GET /process/{task_id}"| api
     api -->|"store uploads"| s3[("S3-compatible storage<br/>PDFs, Markdown, advice JSON")]
     api -->|"start, query, signal"| temporal[("Temporal<br/>:7233")]
@@ -184,6 +367,7 @@ flowchart LR
     pdfworker -->|"download PDF, store Markdown"| s3
     legalworker -->|"download PDFs, store advice"| s3
     legalworker -->|"analyze, merge, follow up"| llm["OpenRouter<br/>OPENROUTER_MODEL"]
+    legalworker -->|"the finished report"| smtp["SMTP<br/>SMTP_HOST"]
 ```
 
 The API never does the heavy work itself. It stores each upload in S3, starts
@@ -200,13 +384,21 @@ defaults (`TEMPORAL_TASK_QUEUE`, `LEGAL_TASK_QUEUE`).
 legal-review-agent/
 ├── main.py                         FastAPI app: routes, /health, the UI mount, uvicorn entrypoint
 ├── worker.py                       PDF worker entrypoint (uv run worker.py)
-├── ui/                             browser UI served at /ui, no build step
+├── ui/                             browser UI served at /ui, ES modules, no build step
 │   ├── index.html
 │   ├── styles.css
-│   └── app.js
+│   └── js/
+│       ├── main.js                 boot and routing between views
+│       ├── router.js, sidebar.js, store.js
+│       ├── api.js                  every call the page makes, paths in one table
+│       ├── dom.js, format.js, labels.js
+│       └── views/                  new-review, review, results, projects, project
 ├── routes/
 │   ├── process.py                  POST /process, GET /process/{task_id}
-│   └── legal.py                    POST /legal, GET /legal/{task_id}, POST /legal/{task_id}/respond
+│   ├── legal.py                    POST /legal, GET /legal/{task_id}, POST /legal/{task_id}/respond
+│   ├── projects.py                 POST/GET /projects, GET /projects/{id}, and its stored reviews
+│   ├── chat.py                     questions about a finished review
+│   └── voice.py                    /voice/transcribe and /voice/speak, proxied to voice/
 ├── workflows/
 │   ├── workflow_process_pdf.py     ProcessPdfWorkflow
 │   └── workflow_legal_review.py    LegalReviewWorkflow: concurrency cap, human wait, queries
@@ -220,7 +412,8 @@ legal-review-agent/
 │   ├── analyze_batch.py            one batch -> the model -> validated advice
 │   ├── merge_advice.py             per-batch advice -> one review
 │   ├── human_followup.py           revises advice with a human's answer
-│   └── upload_advice.py            advice JSON -> S3_LEGAL_ADVICE
+│   ├── upload_advice.py            advice JSON -> S3_LEGAL_ADVICE
+│   └── send_report.py              the finished review -> an email
 ├── workers/
 │   ├── process_pdf_worker/         the PDF -> Markdown worker
 │   │   ├── process_pdf_worker.py
@@ -233,19 +426,23 @@ legal-review-agent/
 ├── interfaces/
 │   ├── llm_interface.py            LLMInterface: JSON extraction, repair, validation
 │   ├── openrouter_llm.py           the OpenRouter client
-│   └── llm_factory.py              get_llm(), chosen by LLM_PROVIDER
+│   ├── llm_factory.py              get_llm(), chosen by LLM_PROVIDER
+│   ├── asr_interface.py, tts_interface.py
+│   ├── voice_service.py            the HTTP client for voice/
+│   └── voice_factory.py            get_asr(), get_tts()
 ├── prompts/                        one prompt per file, looked up by PromptName
 │   ├── prompt.py                   the Prompt dataclass
 │   ├── legal_advice.py
 │   ├── merge_advice.py
-│   └── human_followup.py
+│   ├── human_followup.py
+│   └── review_chat.py              the only prompt whose reply is prose, not JSON
 ├── schemas/                        one dataclass file per activity and workflow input/output,
-│                                   plus LegalAdvice, KeyRisk and PageBatch
+│                                   plus LegalAdvice, KeyRisk, PageBatch and Project
 ├── enums/                          TaskStatus, RiskSeverity, ReviewDecision, PromptName, LLMProvider
 │   └── RetryPolicy/                StorageRetryPolicy, ParsingRetryPolicy, StrictRetryPolicy,
 │                                   LLMRetryPolicy, RetryProfile
 ├── exceptions/                     AIAgentError and its config, llm, parsing, storage,
-│                                   validation and workflow families
+│                                   validation, workflow and notification families
 ├── parsers/
 │   └── pymupdf_parser.py           parse_pdf, parse_pdf_pages, parse_pdf_to_file
 ├── utils/
@@ -254,13 +451,26 @@ legal-review-agent/
 │   ├── temporal_client.py          get_temporal_client
 │   ├── utility.py                  get_s3_client, upload_s3_file, download_s3_file, build_run_artifacts
 │   ├── store_upload.py             validate_upload, store_upload, store_uploads
-│   ├── batching.py                 split_pages_into_batches
+│   ├── batching.py                 split_pages_into_batches, page markers
+│   ├── evidence.py                 checks each risk's quote against its pages
+│   ├── projects.py                 projects as folders in the bucket
+│   ├── advice_store.py             where advice lives, and reading it back
+│   ├── mailer.py                   one email over SMTP
+│   ├── report.py                   a finished review as HTML
+│   ├── retrieval.py                which pages a question is about
+│   ├── chat_store.py               the chat thread, stored beside its review
+│   ├── audio_store.py              the recordings, stored beside the thread
 │   ├── responses.py                the JSON bodies the /process endpoints return
 │   ├── legal_responses.py          the JSON bodies the /legal endpoints return
 │   ├── http_errors.py              exception -> HTTP status mapping
 │   ├── workflow_ids.py             task id <-> workflow id
 │   └── logger.py                   setup_logging, get_logger
 ├── tests/                          pytest suite, one file per module; offline, no credentials needed
+├── voice/                          the speech service: its own uv project and image
+│   ├── main.py                     /health, /transcribe, /speak
+│   ├── asr.py, tts.py, audio.py    the models, and the WAV handling around them
+│   ├── quantization.py             4-bit and 8-bit loading, with a fallback
+│   └── Docker/                     Dockerfile and compose, with the GPU passed through
 ├── images/                         screenshots used in this README
 ├── .github/workflows/lint.yml      CI: black, ruff and pytest on every push
 ├── .pre-commit-config.yaml         the same checks before every commit
@@ -328,13 +538,28 @@ cp .env.example .env
 | `LLM_TIMEOUT_SECONDS` | Timeout for one model call (default `300`) |
 | `LLM_TEMPERATURE` | Sampling temperature (default `0.2`) |
 | `S3_LEGAL_ADVICE` | Bucket the advice JSON lands in (default `legaladvice`) |
+| `S3_PROJECTS` | Bucket holding everything a project owns (default `projects`) |
 | `LEGAL_TASK_QUEUE` | Task queue for the legal review (default `legal_advice_queue`) |
 | `LEGAL_MAX_CONCURRENT_PDFS` | Documents in flight at once within one review (default `10`) |
 | `LEGAL_PAGES_PER_BATCH` | Pages per model call (default `30`) |
 | `LEGAL_MAX_PDFS` | Most documents accepted in one request (default `20`) |
 | `HUMAN_INPUT_TIMEOUT_SECONDS` | How long a document waits for an answer before finishing unreviewed (default `3600`) |
+| `SMTP_HOST` | Mail server the report is sent through; empty means no report is emailed |
+| `SMTP_PORT` | SMTP port (default `587`, STARTTLS) |
+| `SMTP_USERNAME` | SMTP username; empty for a relay that needs no login |
+| `SMTP_PASSWORD` | SMTP password |
+| `SMTP_FROM` | Address the report is sent from |
+| `SMTP_USE_TLS` | Upgrade the connection with STARTTLS (default `true`) |
+| `SMTP_TIMEOUT_SECONDS` | Timeout for the SMTP conversation (default `30`) |
+| `VOICE_SERVICE_URL` | Where the voice service listens (default `http://127.0.0.1:8100`) |
+| `VOICE_TIMEOUT_SECONDS` | Timeout for a transcription or a synthesis (default `120`) |
+| `ASR_PROVIDER`, `TTS_PROVIDER` | Which implementations the voice factories return (default `voice_service`) |
+| `TTS_VOICE` | Which voice reads the answers (default `af_msa`) |
+| `TTS_LANGUAGE` | Language hint for both halves (default `English`) |
+| `CHAT_CONTEXT_CHARACTERS` | How much document text one answer may be given (default `12000`) |
+| `STORE_AUDIO` | Keep the recordings in the bucket beside the thread (default `true`) |
 
-All three buckets must already exist; the service does not create them.
+All four buckets must already exist; the service does not create them.
 
 `LEGAL_PAGES_PER_BATCH`, `LEGAL_MAX_CONCURRENT_PDFS` and
 `HUMAN_INPUT_TIMEOUT_SECONDS` are read by the API when a review is submitted and
@@ -355,7 +580,11 @@ temporal server start-dev                       # 1. Temporal
 uv run worker.py                                # 2. PDF worker
 uv run python -m workers.legal_advice_worker    # 3. legal review worker
 uv run main.py                                  # 4. API and browser UI
+uv run --directory voice main.py                # 5. voice service, for chat
 ```
+
+The voice service is optional: without it a review still runs, and questions
+can still be typed. Only the microphone and the spoken answers need it.
 
 For the PDF pipeline alone, `RUN_WORKER_IN_API=true` has the API host the PDF
 worker, so Temporal and `uv run main.py` are enough. That setting covers only
@@ -389,6 +618,7 @@ container, or two workers poll the same queue. More under
 | --- | --- |
 | `8000` | The API (`API_PORT`): the endpoints below, interactive docs at `/docs`, the browser UI at `/` and `/ui` |
 | `7233` | The Temporal frontend (`TEMPORAL_HOST`), which the API and the workers connect to |
+| `8100` | The voice service (`VOICE_SERVICE_URL`), which only the API calls |
 | `8233` | The Temporal web UI, with `temporal server start-dev` |
 | `8080` | The Temporal web UI, in Temporal's Docker Compose stack |
 
@@ -483,11 +713,86 @@ A task that ended badly reports the terminal state's name: `failed`,
 Because the work is durable, a dropped connection costs you the response but
 never the run: the `task_id` fetches it afterwards.
 
+### `POST /projects`
+
+Creates a project. `description` and `email` are optional; the email is where
+every review in the project sends its report.
+
+```bash
+curl -X POST http://127.0.0.1:8000/projects \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Acme — NDAs", "description": "Standard NDAs", "email": "legal@acme.test"}'
+```
+
+```json
+{
+  "id": "acme-ndas-b4b731b4",
+  "name": "Acme — NDAs",
+  "description": "Standard NDAs",
+  "email": "legal@acme.test",
+  "created_at": "2026-09-22T20:41:03+00:00",
+  "prefix": "projects/acme-ndas-b4b731b4/"
+}
+```
+
+A project with no name, or an address that is not one, is a 400.
+
+### `GET /projects`
+
+Every project, newest first: `{"projects": [...], "project_count": 2}`.
+
+### `GET /projects/{project_id}`
+
+One project, plus the reviews filed in it:
+
+```json
+{
+  "id": "acme-ndas-b4b731b4",
+  "name": "Acme — NDAs",
+  "prefix": "projects/acme-ndas-b4b731b4/",
+  "reviews": [
+    {
+      "task_id": "a1b2c3d4",
+      "workflow_id": "legal-review-a1b2c3d4",
+      "pdf_keys": ["projects/acme-ndas-b4b731b4/contract-a1b2c3d4.pdf"],
+      "submitted_at": "2026-09-22T20:44:10+00:00",
+      "document_count": 1
+    }
+  ],
+  "review_count": 1
+}
+```
+
+### `GET /projects/{project_id}/reviews/{task_id}`
+
+The same review read from the bucket rather than from Temporal, so it still
+answers after the workflow's history is gone. Documents whose advice is not
+stored yet are listed under `pending` instead of `documents`.
+
+```json
+{
+  "task_id": "a1b2c3d4",
+  "project_id": "acme-ndas-b4b731b4",
+  "workflow_id": "legal-review-a1b2c3d4",
+  "submitted_at": "2026-09-22T20:44:10+00:00",
+  "documents": [{ "pdf_key": "...", "summary": "...", "key_risks": [] }],
+  "document_count": 1,
+  "pending": []
+}
+```
+
+Use `GET /legal/{task_id}` while a review is running: it is the live view, with
+progress and pending questions. This one is the durable one.
+
 ### `POST /legal`
 
 Accepts `multipart/form-data` with one field named `files` per document, each a
 `.pdf`, up to `LEGAL_MAX_PDFS` per request. Stores them, starts one review and
 returns **202** straight away.
+
+Two optional form fields come with it: `project_id` files the documents in that
+project's folder and records the review against it, and `email` overrides the
+project's address for this one review.
 
 ```bash
 curl -F "files=@contract.pdf" -F "files=@nda.pdf" http://127.0.0.1:8000/legal
@@ -500,7 +805,8 @@ curl -F "files=@contract.pdf" -F "files=@nda.pdf" http://127.0.0.1:8000/legal
   "workflow_id": "legal-review-a1b2c3d4",
   "pdf_bucket": "temporalpdfs",
   "pdf_keys": ["contract-a1b2c3d4.pdf", "nda-9f8e7d6c.pdf"],
-  "pdf_count": 2
+  "pdf_count": 2,
+  "project_id": ""
 }
 ```
 
@@ -529,7 +835,14 @@ a human, and the advice for documents that have already finished:
       "s3_path": "s3://legaladvice/contract-a1b2c3d4.advice.json",
       "summary": "A services agreement for software consulting ...",
       "key_risks": [
-        { "description": "The supplier's liability is unlimited.", "severity": "high", "location": "Clause 9" }
+        {
+          "description": "The supplier's liability is unlimited.",
+          "severity": "high",
+          "location": "Clause 9",
+          "quote": "The Supplier's aggregate liability under this Agreement shall be unlimited.",
+          "page": 7,
+          "quote_verified": true
+        }
       ],
       "review_decision": "auto_approved",
       "needs_attention": false
@@ -541,7 +854,9 @@ a human, and the advice for documents that have already finished:
 `status` is `awaiting_human` while at least one question is open, otherwise
 `processing`. A document's state is `processing`, `awaiting_human` or
 `completed`. Severities are `low`, `medium`, `high` and `critical`.
-`review_decision` is `auto_approved`, `human_approved` or `unreviewed_timeout`,
+Each risk carries the `quote` it rests on and the `page` it is on;
+`quote_verified` says whether that quote was found in the document (see
+[Legal review](#legal-review)). `review_decision` is `auto_approved`, `human_approved` or `unreviewed_timeout`,
 and `needs_attention` is true for advice nobody answered in time.
 
 Once every document is done, `status` is `completed`, `documents` becomes the
@@ -568,15 +883,66 @@ curl -X POST http://127.0.0.1:8000/legal/a1b2c3d4/respond \
 The document is released and its advice is revised with the answer. An answer
 for a key that is not part of the review is ignored.
 
+### `POST /projects/{project_id}/reviews/{task_id}/chat`
+
+Asks a question about a finished review. `spoken` records that it arrived as
+speech, which is worth knowing when a transcription turns out to have misheard
+something.
+
+```bash
+curl -X POST http://127.0.0.1:8000/projects/acme-ndas-b4b731b4/reviews/a1b2c3d4/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is the liability cap?"}'
+```
+
+```json
+{
+  "task_id": "a1b2c3d4",
+  "project_id": "acme-ndas-b4b731b4",
+  "turn": {
+    "question": "What is the liability cap?",
+    "answer": "Liability is capped at twelve months of fees (p. 7).",
+    "citations": ["projects/acme-ndas-b4b731b4/contract-a1b2c3d4.pdf p. 7"],
+    "asked_at": "2026-09-23T09:12:44+00:00",
+    "spoken": false
+  },
+  "turn_count": 1
+}
+```
+
+`GET` on the same path returns the whole thread. A review whose advice is not
+stored yet answers 409 rather than guessing.
+
+### `POST /voice/transcribe`
+
+`multipart/form-data` with `audio` — 16 kHz mono WAV, which is what the browser
+sends — and an optional `language`. Returns `{"text": "...", "audio_key": "..."}`.
+503 when the voice service is not running.
+
+Add `project_id`, `task_id` and `turn` and the recording is kept beside that
+thread, and `audio_key` says where; without them it is transcribed and dropped.
+
+### `POST /voice/speak`
+
+`{"text", "voice", "language"}` in, `audio/wav` out. `voice` defaults to
+`TTS_VOICE`. With `project_id`, `task_id` and `turn`, the audio is kept and
+noted on that turn, so playing it again costs nothing.
+
+### `GET /projects/{project_id}/reviews/{task_id}/audio/{turn}/{kind}`
+
+Plays back a stored recording; `kind` is `question` or `answer`. 404 when that
+clip was never kept.
+
 ### Errors
 
 | Status | Cause |
 | --- | --- |
 | `400` | An upload is not a `.pdf`, a file is empty, or more than `LEGAL_MAX_PDFS` documents were sent (`ValidationError`) |
-| `404` | No task with that id |
+| `404` | No task or project with that id |
 | `422` | No form field named `file` (`/process`) or `files` (`/legal`), a `/respond` body without `pdf_key` or `answer`, or a PDF that could not be parsed (`ParsingError`) |
 | `502` | The object store could not be reached or refused the request (`StorageError`) |
-| `503` | Temporal is unreachable (`TemporalConnectionError`), or a running workflow could not be queried |
+| `409` | A review has no stored advice to answer questions from yet |
+| `503` | Temporal is unreachable (`TemporalConnectionError`), a running workflow could not be queried, or the voice service is down (`VoiceUnavailableError`) |
 | `500` | The workflow failed, or anything else |
 
 The PDF workflow returns a `ProcessPdfResult` (`schemas/process_pdf_result.py`),
@@ -648,10 +1014,25 @@ tests/test_llm_interface.py
 tests/test_openrouter_llm.py
                          the OpenRouter client against httpx's MockTransport,
                          including 402s and replies cut off at the token limit
+tests/test_evidence.py   finding quotes, fuzzy matches, carrying verification
+                         through the merge and the follow-up
 tests/test_llm_factory.py, test_prompts.py, test_batching.py,
 test_risk_severity.py, test_review_decision.py
                          the LLM factory, prompts, batching and the legal enums
-tests/test_ui.py         the UI is served and calls the real routes
+tests/test_projects.py   the project store: slugs, manifests, review records
+tests/test_routes_projects.py
+                         /projects, and a review read back from the bucket
+tests/test_report.py     the emailed report, its subject, and the mailer
+tests/test_retrieval.py  which pages a question selects, and the budget
+tests/test_chat_store.py the chat thread in the bucket
+tests/test_audio_store.py
+                         where a recording is kept, and when it is not
+tests/test_routes_chat.py
+                         a question answered from the advice and the pages
+tests/test_voice.py      the voice client against MockTransport, the factories,
+                         and the two proxy routes
+tests/test_ui.py         every module is served, its imports resolve, and the
+                         endpoints it calls exist in the API
 ```
 
 ## Code quality
@@ -694,7 +1075,10 @@ AIAgentError
 +-- LLMError                LLMConfigurationError, LLMTimeoutError,
 |                           LLMRateLimitError, LLMResponseError
 +-- WorkflowError           ActivityFailedError, TemporalConnectionError,
-                            WorkflowExecutionError
+|                           WorkflowExecutionError
++-- NotificationError       EmailNotConfiguredError, EmailSendError
++-- VoiceError              VoiceConfigurationError, VoiceUnavailableError,
+                            TranscriptionError, SynthesisError
 ```
 
 Each domain lives in its own module (`exceptions/storage.py` and so on) and is
@@ -740,6 +1124,7 @@ The legal review, which reuses `download_pdf`:
 | `activities/merge_advice.py` | `schemas/merge_advice.py` | Per-batch advice into one review |
 | `activities/human_followup.py` | `schemas/human_followup.py` | Advice revised with a human's answer |
 | `activities/upload_advice.py` | `schemas/upload_advice.py` | Advice JSON into `S3_LEGAL_ADVICE` |
+| `activities/send_report.py` | `schemas/send_report.py` | The finished review into an email |
 
 `activities.PDF_ACTIVITIES` and `activities.LEGAL_ACTIVITIES` are the two lists
 to hand a `Worker(activities=...)`, and `ALL_ACTIVITIES` is both.
