@@ -191,6 +191,44 @@ def test_the_metered_llm_points_at_the_model_it_was_asked_for(settings):
     assert settings.openrouter_model == "test/reviewer"
 
 
+def test_a_local_run_is_metered_and_named_correctly(settings, monkeypatch):
+    """
+    A scorecard that names a model other than the one that produced the numbers
+    is worse than one with no name on it, because it will be believed.
+    """
+    import evaluation.config
+    import utils.config
+    from evaluation.common.models import reviewer_model, reviewer_setting
+    from interfaces.ollama_llm import OllamaLLM
+
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setattr(utils.config, "_settings_instance", None)
+    monkeypatch.setattr(evaluation.config, "_instance", None)
+    local = utils.config.get_setting()
+
+    assert reviewer_model(local) == "test/local"
+    assert reviewer_setting(local) == "OLLAMA_MODEL"
+
+    built = TokenMeter().llm(local)
+    assert isinstance(built, OllamaLLM)
+    assert built.model == "test/local"
+
+
+def test_a_local_judge_override_names_the_local_model(settings, monkeypatch):
+    """The override has to land on the field the active provider actually reads."""
+    import evaluation.config
+    import utils.config
+
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setattr(utils.config, "_settings_instance", None)
+    monkeypatch.setattr(evaluation.config, "_instance", None)
+    local = utils.config.get_setting()
+
+    assert TokenMeter().llm(local, model="other/model").model == "other/model"
+    # and the reviewer is untouched by it
+    assert local.ollama_model == "test/local"
+
+
 def test_the_evaluation_prompts_are_not_in_the_products_registry():
     """An evaluation prompt in prompts/ is one the service could send to a client."""
     from prompts import get_prompt

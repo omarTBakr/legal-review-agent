@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from enums.LLMProvider import LLMProvider
+from interfaces.ollama_llm import OllamaLLM
 from interfaces.openrouter_llm import OpenRouterLLM
 from utils.config import Settings
 from utils.logger import get_logger
@@ -74,12 +76,19 @@ class TokenMeter:
             except ValueError:
                 return
 
-            usage = body.get("usage")
             model = body.get("model")
-            if not isinstance(usage, dict) or not model:
+            if not model:
                 return
 
-            self.record(model, int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0))
+            usage = body.get("usage")
+            if isinstance(usage, dict):
+                self.record(model, int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0))
+                return
+
+            # Ollama reports the same two numbers under its own names, and only
+            # on the final object of a reply
+            if body.get("done"):
+                self.record(model, int(body.get("prompt_eval_count") or 0), int(body.get("eval_count") or 0))
 
         return record_usage
 
@@ -92,22 +101,41 @@ class TokenMeter:
             event_hooks={"response": [self._hook()]},
         )
 
-    def llm(self, settings: Settings, model: str = "", temperature: float | None = None, max_tokens: int = 0) -> OpenRouterLLM:
+    def ollama_client(self, settings: Settings) -> httpx.AsyncClient:
+        """A local Ollama client that reports to this meter."""
+        return httpx.AsyncClient(
+            base_url=settings.ollama_base_url,
+            timeout=httpx.Timeout(settings.llm_timeout_seconds, connect=10.0),
+            event_hooks={"response": [self._hook()]},
+        )
+
+    def llm(self, settings: Settings, model: str = "", temperature: float | None = None, max_tokens: int = 0):
         """
         A metered LLM, optionally pointed at a different model than the service uses.
 
         The overrides go through Settings.model_copy rather than the environment,
         so asking for the judge cannot change which model the reviewer gets.
+
+        Which implementation comes back follows LLM_PROVIDER, so a sweep can be
+        run against a model on this machine. The meter still counts the tokens —
+        Ollama reports its own counts under different names — and prices them at
+        nothing, which is what a local model costs.
         """
+        local = LLMProvider.parse(settings.llm_provider) is LLMProvider.OLLAMA
+        model_field = "ollama_model" if local else "openrouter_model"
+
         overrides = {}
         if model:
-            overrides["openrouter_model"] = model
+            overrides[model_field] = model
         if temperature is not None:
             overrides["llm_temperature"] = temperature
         if max_tokens:
             overrides["llm_max_tokens"] = max_tokens
 
         scoped = settings.model_copy(update=overrides) if overrides else settings
+
+        if local:
+            return OllamaLLM(scoped, client=self.ollama_client(scoped))
 
         return OpenRouterLLM(scoped, client=self.client(scoped))
 

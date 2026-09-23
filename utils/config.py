@@ -34,6 +34,17 @@ class Settings(BaseSettings):
     openrouter_model: str = Field("deepseek/deepseek-v4.1-flash", description="OpenRouter model id")
     openrouter_base_url: str = Field("https://openrouter.ai/api/v1", description="OpenRouter API base URL")
 
+    # a model on this machine: free per call, slower, and weaker. LLM_PROVIDER=ollama
+    ollama_base_url: str = Field("http://localhost:11434", description="Base URL of the local Ollama server")
+    ollama_model: str = Field("gemma4:e4b", description="Which `ollama list` model answers")
+    # Ollama does NOT use a model's full context by default; it truncates to its
+    # own much smaller default, which would feed the model half a contract and
+    # let it report no risks in the half it never saw
+    ollama_context_tokens: int = Field(32768, description="num_ctx: the context window actually used")
+    # measured here: the same answer took 26.1s thinking and 0.5s without, and
+    # on a long prompt the reasoning ate the whole reply budget
+    ollama_think: bool = Field(False, description="Let a reasoning model think before answering")
+
     # legal advice pipeline
     s3_legal_advice: str = Field("legaladvice", description="Bucket the advice JSON lands in")
     s3_projects: str = Field("projects", description="Bucket holding everything that belongs to a project")

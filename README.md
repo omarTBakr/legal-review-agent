@@ -539,6 +539,11 @@ cp .env.example .env
 | `OPENROUTER_API_KEY` | OpenRouter API key, needed by the legal review worker |
 | `OPENROUTER_MODEL` | OpenRouter model id the legal review uses |
 | `OPENROUTER_BASE_URL` | OpenRouter API base URL (default `https://openrouter.ai/api/v1`) |
+| `LLM_PROVIDER` | `openrouter` (hosted) or `ollama` (a model on this machine) |
+| `OLLAMA_BASE_URL` | Local Ollama server (default `http://localhost:11434`) |
+| `OLLAMA_MODEL` | Which `ollama list` model answers (default `gemma4:e4b`) |
+| `OLLAMA_CONTEXT_TOKENS` | `num_ctx`, the context actually used (default `32768`). **Ollama truncates to its own much smaller default otherwise**, so the model would read half a contract and report no risks in the half it never saw |
+| `OLLAMA_THINK` | Let a reasoning model think first (default `false`; measured here at 26.1s with, 0.5s without, same answer) |
 | `LLM_PROVIDER` | Which `LLMInterface` implementation `get_llm()` returns (default `openrouter`) |
 | `LLM_MAX_TOKENS` | Longest reply the model may write (default `16000`) |
 | `LLM_TIMEOUT_SECONDS` | Timeout for one model call (default `300`) |

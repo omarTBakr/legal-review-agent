@@ -28,6 +28,7 @@ from pathlib import Path
 
 from enums.RiskSeverity import RiskSeverity
 from evaluation.common.meter import TokenMeter
+from evaluation.common.models import reviewer_model, reviewer_setting
 from evaluation.common.pipeline import result_from_dict, review_text
 from evaluation.config import DATA_DIR, RESULTS_DIR, get_eval_settings
 from evaluation.cuad.download import ATTRIBUTION, ensure_dataset
@@ -215,7 +216,7 @@ def check_distinct_models(settings, eval_settings, arguments) -> None:
     adjudicator that is the judge cannot overturn it. Either would produce a
     number that looks like evidence and is not, which is worse than no number.
     """
-    levels = [("OPENROUTER_MODEL", settings.openrouter_model)]
+    levels = [(reviewer_setting(settings), reviewer_model(settings))]
     if not arguments.no_judge:
         levels.append(("EVAL_JUDGE_MODEL", eval_settings.judge_model))
     if not (arguments.no_judge or arguments.no_adjudicator):
@@ -461,7 +462,7 @@ async def main_async(arguments) -> dict:
         "dry_run": bool(arguments.dry_run),
         "contracts": len(sample),
         "contract_titles": [contract.title for contract in sample],
-        "reviewer_model": settings.openrouter_model,
+        "reviewer_model": reviewer_model(settings),
         "judge_model": eval_settings.judge_model if not arguments.no_judge else "",
         "adjudicator_model": eval_settings.adjudicator_model if adjudications else "",
         "sample_seed": arguments.seed or eval_settings.sample_seed,

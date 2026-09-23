@@ -329,8 +329,12 @@ class Arguments:
 
 
 class Models:
-    def __init__(self, reviewer="a/one", judge="b/two", adjudicator="c/three"):
+    """Stands in for both Settings and EvalSettings in the distinctness check."""
+
+    def __init__(self, reviewer="a/one", judge="b/two", adjudicator="c/three", provider="openrouter"):
+        self.llm_provider = provider
         self.openrouter_model = reviewer
+        self.ollama_model = reviewer
         self.judge_model = judge
         self.adjudicator_model = adjudicator
 

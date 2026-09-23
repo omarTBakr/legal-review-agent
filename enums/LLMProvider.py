@@ -5,6 +5,7 @@ class LLMProvider(Enum):
     """Which LLMInterface implementation the factory should build."""
 
     OPENROUTER = "openrouter"
+    OLLAMA = "ollama"
 
     @classmethod
     def parse(cls, value: str) -> "LLMProvider":
