@@ -4,8 +4,23 @@ Three layers, because no one of them is enough. Automated metrics can tell you a
 quote overlapped an annotated clause; they cannot tell you the risk was the right
 risk. A judge model can say that, and cannot be trusted on the clauses where
 being wrong is expensive. A human can, and does not scale. So: metrics on
-everything, a judge on what the metrics matched, and a human on what the judge
-was unsure about.
+everything, a judge on what the metrics matched, and layer 3 on what the judge
+was unsure about — first the strongest model available, then a lawyer on what even
+that could not settle.
+
+**A model per level, each stronger than the one below, none of them the same.**
+The cost of a level falls as its model gets dearer, because each sees a fraction
+of what the one beneath it did:
+
+| Level | Setting | Default | Sees |
+| --- | --- | --- | --- |
+| Reviewer, the system under test | `OPENROUTER_MODEL` | `deepseek/deepseek-v4.1-flash` | every batch of every contract |
+| Layer 2, the judge | `EVAL_JUDGE_MODEL` | `anthropic/claude-sonnet-5` | every finding that matched a clause |
+| Layer 3, the expert | `EVAL_ADJUDICATOR_MODEL` | `anthropic/claude-opus-5` | only the escalations |
+
+The run **refuses to start** when any two of them are the same model. A model
+grading or overturning its own output agrees with itself, and the agreement is not
+evidence — it is a number that looks like one, which is worse than no number.
 
 Nothing here is imported by the service. The suite calls the product's own
 parser, batching, prompts, `LegalAdvice.from_model` and `utils/evidence.py`, so a
@@ -27,9 +42,12 @@ uv run python -m evaluation.run --dry-run
 # this run against a previous scorecard
 uv run python -m evaluation.run --compare evaluation/results/cuad-<earlier>/scorecard.json
 
-# work through the escalation queue, then see whether the judge agreed
-uv run python -m evaluation.layer3_human.review evaluation/results/cuad-<run>/escalations.jsonl
-uv run python -m evaluation.layer3_human.agreement evaluation/results/cuad-<run>
+# adjudicate a run's queue on its own (a run made with --no-adjudicator)
+uv run python -m evaluation.layer3_expert.adjudicator evaluation/results/cuad-<run>
+
+# work through what the expert left, then see whether either model agreed
+uv run python -m evaluation.layer3_expert.review evaluation/results/cuad-<run>
+uv run python -m evaluation.layer3_expert.agreement evaluation/results/cuad-<run>
 
 # the suite's own tests: offline, no credentials, no download
 uv run pytest evaluation
@@ -44,9 +62,13 @@ Everything is prefixed `EVAL_` and read from the same `.env`:
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `EVAL_JUDGE_MODEL` | `anthropic/claude-sonnet-5` | Must differ from `OPENROUTER_MODEL`; the run refuses otherwise |
+| `EVAL_JUDGE_MODEL` | `anthropic/claude-sonnet-5` | Layer 2. Must differ from the other two; the run refuses otherwise |
 | `EVAL_JUDGE_TEMPERATURE` | `0.0` | A rubric wants determinism |
 | `EVAL_JUDGE_MAX_TOKENS` | `4000` | A reasoning judge spends most of this before writing any JSON |
+| `EVAL_ADJUDICATOR_MODEL` | `anthropic/claude-opus-5` | Layer 3's expert. Must differ from the other two |
+| `EVAL_ADJUDICATOR_TEMPERATURE` | `0.0` | As the judge |
+| `EVAL_ADJUDICATOR_MAX_TOKENS` | `6000` | It writes more than the judge, and reasons before it does |
+| `EVAL_ADJUDICATE_LIMIT` | `0` | Cap the escalations adjudicated, worst score first; 0 is all |
 | `EVAL_EXTRACTION_MODEL` | *(empty)* | Empty means the reviewer's own model |
 | `EVAL_SAMPLE_SIZE` | `25` | Contracts drawn when `--limit` is not given |
 | `EVAL_SAMPLE_SEED` | `20260101` | Change it and you are measuring a different sample |
@@ -116,9 +138,9 @@ with; every entry carries its reason so you can.
 A stronger model grades each matched finding against the annotated clause on four
 dimensions, 0 or 1 each: CORRECTNESS, COMPLETENESS, PRECISION, EXPLANATION.
 
-- The judge **must** differ from the reviewer. A model grading its own output
-  agrees with itself and the agreement is not evidence, so the run refuses to
-  start when `EVAL_JUDGE_MODEL` equals `OPENROUTER_MODEL`.
+- The judge **must** differ from the reviewer and from layer 3's expert. A model
+  grading its own output agrees with itself and the agreement is not evidence, so
+  the run refuses to start when any two levels name the same model.
 - `temperature=0`.
 - The reply is parsed with `LLMInterface.parse_json_object` — the product's own
   parser, fences, repair and all.
@@ -143,19 +165,66 @@ All the reasons are recorded, not just the first, so whoever triages the queue c
 see that a borderline liability clause is not the same item as a borderline audit
 right.
 
-## Layer 3 — the human
+## Layer 3 — the expert, then the human
 
-`review.py` is a terminal form over `escalations.jsonl`. Per item it shows the
-annotated clause, then the system output, then the judge's verdict — in that
-order, because a reviewer who reads the grade first tends to agree with it — and
-asks six questions: risk correctly identified (yes/no/partially), span accuracy
+### The expert model
+
+`adjudicator.py` takes the escalation queue and re-decides each item with the
+strongest model on the list. Only the queue reaches it — a few dozen items against
+the judge's few hundred and the reviewer's thousands — which is what makes the
+expensive model affordable here.
+
+It is a third opinion, not a second judge:
+
+- its answer is a **decision** on the finding — `upheld`, `partial`,
+  `overturned` — not the judge's four bits;
+- it is **given the judge's verdict** to disagree with. That risks anchoring it,
+  which is why `review.py` shows a human the grade last, but withholding it would
+  make this a second judge rather than a third level, and whether a stronger model
+  overturns a weaker one's calls is the question layer 3 exists to answer;
+- it answers one the judge cannot: **does this need a lawyer at all?** A finding
+  that turns on the commercial bargain, the governing law or what the parties
+  actually did is a question for someone with the file, and saying so is the
+  useful answer. A finding the expert settles from the clause text is a finding a
+  human does not have to read, which is the only way a human layer scales past a
+  demo.
+
+`needs_human` is forced true whatever the reply claimed when the expert's
+confidence is `low`, when the call failed, or when the decision is not one of the
+three the rubric allows — an adjudicator that invents a fourth verdict has not
+followed the rubric, and mapping its invention onto the nearest real one would be
+us deciding rather than it.
+
+Two disagreements with the judge are counted separately, because they cost
+different things: `judge_passed_expert_overturned` is a bad finding that reached a
+client, `judge_failed_expert_upheld` is human time about to be spent on a finding
+that was fine. One number for both would hide which mistake the judge is making.
+
+What the expert could not settle lands in `human_queue.jsonl`, carrying its
+decision, confidence and reason so the lawyer starts from an opinion rather than
+from nothing. An item the expert never saw — `EVAL_ADJUDICATE_LIMIT` cut the queue
+short, or `--no-adjudicator` — stays in that queue untouched. An unasked question
+is not an answered one.
+
+### The human
+
+`review.py` is a terminal form over `human_queue.jsonl` (point it at the run
+directory and it picks the right file; reviewing `escalations.jsonl` directly would
+spend an afternoon on findings the expert already settled). Per item it shows the
+annotated clause, then the system output, then the judge's verdict, then the
+expert's — in that order, because a reviewer who reads a grade first tends to agree
+with it — and asks six questions: risk correctly identified (yes/no/partially), span accuracy
 (exact/too broad/too narrow/wrong location), severity (correct/overstated/
 understated), explanation legally sound, would you flag it to a client, and free
 text. Answers append to `human_reviews.jsonl`; a session can be interrupted and
 resumed, and a second reviewer's answers sit beside the first's.
 
-`agreement.py` reduces both sides to one bit — did this finding pass? — and
-reports raw agreement plus the two directions of disagreement separately.
+`agreement.py` reduces each side to one bit — did this finding pass? — and reports
+raw agreement plus the two directions of disagreement, for the judge and for the
+expert separately. The judge's agreement is measured over everything it graded;
+the expert's only over the items it could *not* settle, since those are the ones a
+human sees. The expert's number is therefore the harder test and will read lower.
+It is also the number that says whether the dear model is earning its place.
 
 **On Cohen's κ.** It measures agreement between *two* annotators, correcting for
 what two coin flips with the same bias would reach by chance. With one human there
@@ -209,38 +278,56 @@ and named under `unpriced_models` rather than costed at zero. "Estimated" becaus
 OpenRouter's invoice applies discounts, cache hits and rounding this does not
 know about.
 
-At the defaults, on `deepseek/deepseek-v4-flash` reviewing and
-`anthropic/claude-sonnet-5` judging, projected from the smoke run's measured
-per-call tokens and the real shape of the seed-20260101 sample of 25 (1.27M
-characters of contract, 282 risky annotated spans):
+At the defaults — `deepseek/deepseek-v4.1-flash` reviewing at $0.10/$0.50 per M
+tokens, `anthropic/claude-sonnet-5` judging at $2/$10, `anthropic/claude-opus-5`
+adjudicating at $5/$25 — projected from the smoke run's measured per-call tokens
+and the real shape of the seed-20260101 sample of 25 (1.27M characters of contract,
+282 risky annotated spans):
 
 | Stage | Model calls | Projected cost |
 | --- | --- | --- |
-| `fixtures.run` | 2 | ~$0.01 |
-| `run --limit 25`, the reviews | 34 `legal_advice` + 5 merges | ~$0.05 |
-| `run --limit 25`, layer 1a (risky categories) | 725 | ~$0.87 |
-| `run --limit 25 --all-categories`, layer 1a | 1,025 | ~$1.25 |
+| `fixtures.run` | 2 | ~$0.02 |
+| `run --limit 25`, the reviews | 34 `legal_advice` + 5 merges | ~$0.15 |
+| `run --limit 25`, layer 1a (risky categories) | 725 | ~$1.05 |
+| `run --limit 25 --all-categories`, layer 1a | 1,025 | ~$1.50 |
 | `run --limit 25`, layer 2 | one per matched finding, 282 at perfect recall | $1.50–$3.20 |
-| **`run --limit 25` all in** | ~1,050 | **~$2.50–$4.10** |
+| `run --limit 25`, layer 3 | one per escalation, expect 60–90 | $2.00–$5.00 |
+| **`run --limit 25` all in** | ~1,150 | **~$5–$10** |
 | `run --all --all-categories` | ~21,000 extraction calls alone | 20× that. Don't, without a budget. |
 
-The judge dominates, so `--no-judge` and `--no-extraction` are the two knobs that
-matter. A cheaper `EVAL_JUDGE_MODEL` is the other, at the cost of the judge being
-weaker than the model it grades, which defeats the point.
+Layer 1a is most of the calls and almost none of the money; layers 2 and 3 are the
+reverse. The knobs, in the order worth reaching for: `--no-extraction` (drops 725
+calls for ~$1), `EVAL_ADJUDICATE_LIMIT` (spends layer 3 on the worst N escalations
+only), `--no-adjudicator`, `--no-judge`. A cheaper judge or expert is the other
+option, at the cost of each grading a model no weaker than itself, which defeats
+the point.
 
 Raw model output lands in `evaluation/results/<timestamp>/` — `reviews.jsonl`,
 `extraction.jsonl`, `risks.jsonl`, `judge.jsonl`, `escalations.jsonl`,
-`scorecard.json` — so re-scoring after a metric change costs nothing. Both
-`evaluation/data/` and `evaluation/results/` are gitignored.
+`adjudications.jsonl`, `human_queue.jsonl`, `scorecard.json` — so re-scoring after a
+metric change costs nothing: `--dry-run` reads the adjudications back rather than
+paying for them again. Both `evaluation/data/` and `evaluation/results/` are
+gitignored.
 
 ## The headline number
 
 **End-to-end miss rate**: risky CUAD clauses that no layer caught. A clause counts
-as caught when the review surfaced it *and* the judge did not score the finding 0
-— telling a client about the wrong risk in the right clause leaves them exposed in
-the same way as saying nothing. `pending_human` says how many catches rest on a
-verdict a human has not seen yet, so the number is provisional until layer 3 has
-run.
+as caught when the review surfaced it *and* whoever looked hardest at the finding
+agreed with it — telling a client about the wrong risk in the right clause leaves
+them exposed in the same way as saying nothing.
+
+Where layer 3 has spoken, it and not the judge decides: the expert saw the same
+clause with more capacity, and letting it overturn the judge in both directions is
+why it is there. `rescued_by_expert` counts clauses the judge failed and the expert
+upheld, `overturned_by_expert` the reverse, and a `partial` is worth half a catch —
+the only honest weight for "the right risk, half of it stated". So `caught` is
+fractional once layer 3 has run, and says so by being a float. Where several
+findings match one clause the best verdict among them wins: a clause is caught if
+anything caught it.
+
+`pending_human` is the length of `human_queue.jsonl` — catches resting on nobody's
+judgement yet — so the headline stays provisional until a lawyer has worked it, and
+the number cannot disagree with the queue the run actually wrote.
 
 ## The dataset
 
@@ -296,11 +383,24 @@ Read these before quoting any number.
    twice at temperature 0 to see whether it agrees with itself, and its pass rate
    is not validated against humans until someone works the queue. Until then
    layer 2's numbers are a model's opinion.
-10. **The fixture expectations are keyword matching.** A review that says
+10. **The expert is anchored on purpose.** It is shown the judge's verdict, which
+    is known to pull a grader towards agreement. The trade is deliberate — see the
+    layer 3 section — but it means `disagreed_with_judge` is a floor, not an
+    estimate: a blind adjudicator would disagree more. Running it both ways on the
+    same queue would measure the size of the anchor, and nothing does that yet.
+11. **Layer 3's model is still a model.** A bigger one settling a case a smaller
+    one could not is not the same as being right, and until a lawyer works
+    `human_queue.jsonl`, `expert_vs_human` is empty and the expert's decisions are
+    an opinion that happens to be expensive. Contamination (1) applies to it as
+    much as to the reviewer.
+12. **Nothing checks the two models are actually different in strength**, only
+    that their ids differ. Setting a weak adjudicator over a strong judge would run
+    happily and produce a number that means the opposite of what it says.
+13. **The fixture expectations are keyword matching.** A review that says
     "liability is unlimited" about the wrong clause scores a hit on recall.
     `anchor_hit` is the check against that, and it is reported separately rather
     than folded in.
-11. **The batches are enormous and the suite does not isolate that.** At
+14. **The batches are enormous and the suite does not isolate that.** At
     `LEGAL_PAGES_PER_BATCH=30` and 2,500-character pages, one batch is ~75,000
     characters — the 338,000-character contract in the default sample becomes 5
     batches, each asking the model to find every risk in 30 pages inside one

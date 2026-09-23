@@ -1,4 +1,4 @@
-"""Does the judge agree with the humans?
+"""Do the models agree with the humans?
 
 The judge exists to save human time, and the only evidence that it does is that
 the humans reach the judge's conclusion when they look. This reduces both sides
@@ -178,10 +178,55 @@ def load_reviews(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+# what an expert decision means as the same one bit the human and judge give
+EXPERT_PASS = {"upheld": True, "overturned": False}
+
+
+def expert_vs_human(reviews: list[dict]) -> dict:
+    """
+    How often the expert model reached the lawyer's conclusion.
+
+    This is the number that says whether the expensive model is worth its place.
+    The judge's agreement is measured over everything it graded; this is measured
+    only over the items the expert could *not* settle, because those are the ones
+    a human sees — so it is the harder test of the two and will read lower. A
+    "partial" is left out on both sides for the reason human_pass leaves out
+    "partially": it is the answer a one-bit comparison cannot hold.
+    """
+    compared = agreed = expert_pass_human_fail = expert_fail_human_pass = 0
+    undecided = 0
+
+    for record in reviews:
+        expert = EXPERT_PASS.get(str(record.get("expert_decision") or ""))
+        human = human_pass(record)
+
+        if expert is None or human is None:
+            undecided += 1
+            continue
+
+        compared += 1
+        if expert == human:
+            agreed += 1
+        elif expert:
+            expert_pass_human_fail += 1
+        else:
+            expert_fail_human_pass += 1
+
+    return {
+        "compared": compared,
+        "agreed": agreed,
+        "agreement_rate": round(agreed / compared, 4) if compared else 0.0,
+        "expert_upheld_human_failed": expert_pass_human_fail,
+        "expert_overturned_human_passed": expert_fail_human_pass,
+        "not_comparable": undecided,
+    }
+
+
 def report(reviews: list[dict]) -> dict:
     """Everything layer 3 can say, with the kappa caveat attached."""
     agreement = judge_vs_human(reviews)
     payload = agreement.to_dict()
+    payload["expert_vs_human"] = expert_vs_human(reviews)
 
     kappa = cohens_kappa(reviews)
     if kappa is not None:

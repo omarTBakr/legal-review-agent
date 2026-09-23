@@ -22,9 +22,12 @@ class EvalSettings(BaseSettings):
     """
     How the evaluation is wired, model ids included.
 
-    The judge must not be the model under review, so `judge_model` defaults to a
-    stronger and more expensive one than OPENROUTER_MODEL. `run.py` refuses to
-    judge when the two are equal.
+    One model per level, each stronger than the one below it, and no two the
+    same. The reviewer (OPENROUTER_MODEL) is the system under test; the judge
+    grades every matched finding; the adjudicator re-decides only the escalated
+    ones, which is why it can afford to be the expensive model. `run.py` refuses
+    to run when two levels share a model: a model grading its own output agrees
+    with itself, and the agreement is not evidence.
     """
 
     judge_model: str = Field("anthropic/claude-sonnet-5", description="OpenRouter model that scores the rubric")
@@ -34,6 +37,14 @@ class EvalSettings(BaseSettings):
     # back cut off at the limit, which OpenRouterLLM rejects outright
     judge_max_tokens: int = Field(4000, description="Token ceiling for a judge reply, reasoning included")
     extraction_model: str = Field("", description="Model for the CUAD extraction task; empty means OPENROUTER_MODEL")
+
+    # layer 3: the expert. Only the escalation queue reaches it, so the biggest
+    # model on the list costs least here — a few dozen calls against the judge's
+    # few hundred and the reviewer's thousands.
+    adjudicator_model: str = Field("anthropic/claude-opus-5", description="OpenRouter model that re-decides escalations")
+    adjudicator_temperature: float = Field(0.0, description="Adjudicator sampling temperature")
+    adjudicator_max_tokens: int = Field(6000, description="Token ceiling for an adjudication; it writes more than the judge")
+    adjudicate_limit: int = Field(0, description="Most escalations to adjudicate, worst score first; 0 means all of them")
 
     sample_size: int = Field(25, description="Contracts drawn from CUAD when --limit is not given")
     sample_seed: int = Field(20260101, description="Seed for the stratified sample, so a run is repeatable")

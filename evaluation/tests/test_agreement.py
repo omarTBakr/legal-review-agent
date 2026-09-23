@@ -2,8 +2,8 @@
 
 import json
 
-from evaluation.layer3_human.agreement import cohens_kappa, human_pass, judge_vs_human, load_reviews, report
-from evaluation.layer3_human.review import ask, collect, render
+from evaluation.layer3_expert.agreement import cohens_kappa, human_pass, judge_vs_human, load_reviews, report
+from evaluation.layer3_expert.review import ask, collect, render
 
 
 def human(risk_identified="yes", judge_pass=True, reviewer="ob", quote="q", category="Uncapped Liability") -> dict:

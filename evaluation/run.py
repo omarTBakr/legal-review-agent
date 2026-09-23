@@ -1,4 +1,11 @@
-"""The CUAD run: sample, review, score, judge, escalate, print a scorecard.
+"""The CUAD run: sample, review, score, judge, escalate, adjudicate, scorecard.
+
+Three models, one per level, each stronger than the one below and none of them
+the same: the reviewer under test (OPENROUTER_MODEL), the judge that grades every
+matched finding (EVAL_JUDGE_MODEL), and the expert that re-decides only what the
+judge escalated (EVAL_ADJUDICATOR_MODEL). The cost falls as the models get
+dearer, because each level sees a fraction of what the one below it did.
+
 
     uv run python -m evaluation.run --limit 25          # the default: 25 contracts, fixed seed
     uv run python -m evaluation.run --all               # all 510; read the cost estimate first
@@ -28,10 +35,19 @@ from evaluation.cuad.loader import Contract, load_contracts, load_risk_categorie
 from evaluation.cuad.sampling import stratified_sample
 from evaluation.layer1_metrics.extraction import ExtractionAttempt, extract_contract, score_extraction
 from evaluation.layer1_metrics.risk_recall import RiskRecord, score_risk_recall
-from evaluation.layer2_judge.escalation import Escalation, build_queue, write_queue
+from evaluation.layer2_judge.escalation import Escalation, build_queue, read_queue, write_queue
 from evaluation.layer2_judge.judge import JudgeVerdict, judge_all, summarize
-from evaluation.layer3_human.agreement import load_reviews
-from evaluation.layer3_human.agreement import report as agreement_report
+from evaluation.layer3_expert.adjudicator import (
+    ADJUDICATIONS_FILE,
+    Adjudication,
+    adjudicate_all,
+    human_queue,
+    load_adjudications,
+    write_adjudications,
+)
+from evaluation.layer3_expert.adjudicator import summarize as summarize_adjudications
+from evaluation.layer3_expert.agreement import load_reviews
+from evaluation.layer3_expert.agreement import report as agreement_report
 from schemas.key_risk import KeyRisk
 from utils.config import get_setting
 from utils.logger import get_logger
@@ -126,43 +142,93 @@ def findings_to_judge(records: list[RiskRecord]) -> list[tuple[str, str, str, Ke
     ]
 
 
-def end_to_end_miss_rate(risk_score, verdicts: list[JudgeVerdict], queue: list[Escalation]) -> dict:
+def end_to_end_miss_rate(
+    risk_score,
+    verdicts: list[JudgeVerdict],
+    queue: list[Escalation],
+    adjudications: list[Adjudication] | None = None,
+    pending_human: int | None = None,
+) -> dict:
     """
     The headline: risky clauses no layer caught.
 
-    A clause is caught when the review surfaced it *and* the judge did not fail
-    the finding outright. A finding the judge scored 0 is a clause the review
-    pointed at and described wrongly, which is not a catch — telling a client
-    about the wrong risk in the right clause leaves them exposed in the same way
-    as saying nothing.
+    A clause is caught when the review surfaced it and whoever looked hardest at
+    the finding agreed with it. A finding the judge scored 0 is a clause the
+    review pointed at and described wrongly, which is not a catch — telling a
+    client about the wrong risk in the right clause leaves them exposed in the
+    same way as saying nothing.
 
-    An escalated clause still counts as caught here, with a caveat: a human has
-    not looked yet. `pending_human` counts the clauses whose catch rests on a
-    verdict in the queue, and it is read off the queue rather than re-derived
-    from the scores, so it cannot disagree with the number of escalations the run
-    reports. A verdict the judge passed and then escalated for hedging or for
-    being high-stakes is still pending.
+    Where layer 3 has spoken, it and not the judge decides: the expert saw the
+    same clause with more capacity, and the point of adding it was to let it
+    overturn the judge in both directions. Its `partial` is worth half a catch,
+    which is the only honest weight for "the right risk, half of it stated" — so
+    `caught` is fractional once layer 3 has run, and says so by being a float.
+
+    An escalated clause the expert settled counts as settled. `pending_human`
+    counts the clauses whose catch still rests on nobody's judgement, and is
+    passed in from the human queue rather than re-derived, so it cannot disagree
+    with the queue the run actually writes.
     """
     failed = {
         (verdict.document, verdict.category, verdict.ground_truth)
         for verdict in verdicts
         if not verdict.error and verdict.total_score == 0.0
     }
-    escalated = {(item.verdict.document, item.verdict.category, item.verdict.ground_truth) for item in queue}
 
-    caught = risk_score.covered_spans - len(failed)
+    # the expert's best word on each span; several findings can match one clause
+    # and the clause is caught if any of them caught it
+    expert: dict[tuple[str, str, str], float] = {}
+    for item in adjudications or []:
+        if item.error or not item.decision:
+            continue
+        key = (item.document, item.category, item.ground_truth)
+        expert[key] = max(expert.get(key, 0.0), item.credit)
+
+    overturned = sum(1 for key, credit in expert.items() if credit == 0.0 and key not in failed)
+    rescued = sum(1 for key, credit in expert.items() if credit == 1.0 and key in failed)
+    partial = sum(1 for credit in expert.values() if credit == 0.5)
+
+    caught = risk_score.covered_spans - len(failed) + rescued - overturned - partial * 0.5
     total = risk_score.gold_spans
+    escalated = {(item.verdict.document, item.verdict.category, item.verdict.ground_truth) for item in queue}
 
     return {
         "risky_gold_spans": total,
         "surfaced_by_review": risk_score.covered_spans,
         "failed_by_judge": len(failed),
-        "caught": caught,
-        "missed": total - caught,
+        "overturned_by_expert": overturned,
+        "rescued_by_expert": rescued,
+        "partial_by_expert": partial,
+        "caught": round(caught, 2),
+        "missed": round(total - caught, 2),
         "miss_rate": round((total - caught) / total, 4) if total else 0.0,
         "review_only_miss_rate": round(risk_score.miss_rate, 4),
-        "pending_human": len(escalated - failed),
+        "pending_human": len(escalated - failed) if pending_human is None else pending_human,
     }
+
+
+def check_distinct_models(settings, eval_settings, arguments) -> None:
+    """
+    Refuses a run where two levels share a model.
+
+    Not pedantry: a model grading its own output agrees with itself, and an
+    adjudicator that is the judge cannot overturn it. Either would produce a
+    number that looks like evidence and is not, which is worse than no number.
+    """
+    levels = [("OPENROUTER_MODEL", settings.openrouter_model)]
+    if not arguments.no_judge:
+        levels.append(("EVAL_JUDGE_MODEL", eval_settings.judge_model))
+    if not (arguments.no_judge or arguments.no_adjudicator):
+        levels.append(("EVAL_ADJUDICATOR_MODEL", eval_settings.adjudicator_model))
+
+    for index, (name, model) in enumerate(levels):
+        for other_name, other_model in levels[index + 1 :]:
+            if model == other_model:
+                raise SystemExit(
+                    f"{name} and {other_name} are both {model}. Each level has to be a different model: "
+                    "a model grading or overturning its own output agrees with itself, and the agreement is "
+                    "not evidence. Change one, or skip that layer."
+                )
 
 
 def print_scorecard(report: dict) -> None:
@@ -201,22 +267,44 @@ def print_scorecard(report: dict) -> None:
         print("\nLayer 2 — skipped")
 
     print(f"\nLayer 3 — {report['escalations']} escalation(s) queued")
+    expert = report.get("layer3_adjudication") or {}
+    if expert.get("settled") or expert.get("errors"):
+        decisions = "  ".join(f"{name} {count}" for name, count in expert["decisions"].items())
+        print(f"  expert {report['adjudicator_model']}: settled {expert['settled']}   errors {expert['errors']}")
+        print(f"  decisions: {decisions or '(none)'}")
+        print(
+            f"  disagreed with the judge {expert['disagreed_with_judge']} time(s) — "
+            f"overturned {expert['judge_passed_expert_overturned']} pass(es), "
+            f"upheld {expert['judge_failed_expert_upheld']} fail(ure)s"
+        )
+        print(f"  severity wrong on {expert['severity_wrong']}   still needs a lawyer: {expert['still_needs_human']}")
+    else:
+        print("  no adjudications; the expert model did not run")
+
     human = report.get("layer3_agreement") or {}
     if human.get("human_reviews"):
         print(f"  {human['human_reviews']} human review(s), agreement {human['agreement_rate']:.3f}")
         print(f"  cohens_kappa: {human['cohens_kappa']} — {human['cohens_kappa_note']}")
     else:
-        print("  no human reviews recorded yet; run evaluation.layer3_human.review over the queue")
+        print(
+            f"  {report.get('awaiting_a_lawyer', report['escalations'])} item(s) in human_queue.jsonl; "
+            "review them with evaluation.layer3_expert.review"
+        )
 
     headline = report["end_to_end"]
     print("")
     print("-" * 78)
     print(
         f"  END-TO-END MISS RATE   {headline['miss_rate']:.1%}"
-        f"   ({headline['missed']} of {headline['risky_gold_spans']} risky clauses caught by no layer)"
+        f"   ({headline['missed']:g} of {headline['risky_gold_spans']} risky clauses caught by no layer)"
     )
     print(f"  of which the review never surfaced {headline['risky_gold_spans'] - headline['surfaced_by_review']},")
     print(f"  and the judge failed {headline['failed_by_judge']} it did surface.")
+    if expert:
+        print(
+            f"  the expert then overturned {headline['overturned_by_expert']}, rescued {headline['rescued_by_expert']} "
+            f"and half-credited {headline['partial_by_expert']}."
+        )
     print(f"  {headline['pending_human']} verdict(s) await a human, so this number is provisional.")
     print("-" * 78)
 
@@ -249,6 +337,11 @@ def compare(current: dict, previous: dict) -> None:
             previous.get("layer1a_extraction", {}).get("overall", {}).get("f1"),
         ),
         ("judge pass rate", current.get("layer2_judge", {}).get("pass_rate"), previous.get("layer2_judge", {}).get("pass_rate")),
+        (
+            "expert disagreed with judge",
+            (current.get("layer3_adjudication") or {}).get("disagreed_with_judge"),
+            (previous.get("layer3_adjudication") or {}).get("disagreed_with_judge"),
+        ),
     ]:
         if now is not None and before is not None:
             rows.append((name, now, before))
@@ -290,12 +383,7 @@ async def main_async(arguments) -> dict:
         attempts = [ExtractionAttempt.from_dict(record) for record in _read_jsonl(results_dir / "extraction.jsonl")]
         verdicts = [JudgeVerdict.from_dict(record) for record in _read_jsonl(results_dir / "judge.jsonl")]
     else:
-        if not arguments.no_judge and eval_settings.judge_model == settings.openrouter_model:
-            raise SystemExit(
-                f"EVAL_JUDGE_MODEL and OPENROUTER_MODEL are both {settings.openrouter_model}. "
-                "A model grading its own output agrees with itself; set EVAL_JUDGE_MODEL to something else "
-                "or pass --no-judge."
-            )
+        check_distinct_models(settings, eval_settings, arguments)
 
         results_dir = RESULTS_DIR / f"cuad-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
         results_dir.mkdir(parents=True, exist_ok=True)
@@ -337,6 +425,34 @@ async def main_async(arguments) -> dict:
         queue_path.unlink()
     write_queue(queue, queue_path)
 
+    # layer 3: the expert model settles what it can, and the queue a lawyer works
+    # through is what is left. On a dry run the recorded adjudications are read
+    # back rather than paid for again.
+    adjudications: list[Adjudication] = []
+    if arguments.dry_run:
+        adjudications = load_adjudications(results_dir)
+    elif queue and not arguments.no_adjudicator:
+        logger.info("adjudicating %d escalation(s) with %s", len(queue), eval_settings.adjudicator_model)
+        expert_llm = meter.llm(
+            settings,
+            model=eval_settings.adjudicator_model,
+            temperature=eval_settings.adjudicator_temperature,
+            max_tokens=eval_settings.adjudicator_max_tokens,
+        )
+        try:
+            adjudications = await adjudicate_all(
+                expert_llm,
+                read_queue(queue_path),
+                eval_settings.request_concurrency,
+                arguments.adjudicate_limit or eval_settings.adjudicate_limit,
+            )
+        finally:
+            await expert_llm.aclose()
+        write_adjudications(adjudications, results_dir / ADJUDICATIONS_FILE)
+
+    for_humans = human_queue(read_queue(queue_path), adjudications)
+    _write_jsonl(results_dir / "human_queue.jsonl", for_humans)
+
     extraction_score = score_extraction(attempts) if attempts else None
 
     report = {
@@ -347,14 +463,17 @@ async def main_async(arguments) -> dict:
         "contract_titles": [contract.title for contract in sample],
         "reviewer_model": settings.openrouter_model,
         "judge_model": eval_settings.judge_model if not arguments.no_judge else "",
+        "adjudicator_model": eval_settings.adjudicator_model if adjudications else "",
         "sample_seed": arguments.seed or eval_settings.sample_seed,
         "dataset": ATTRIBUTION,
         "layer1a_extraction": extraction_score.to_dict() if extraction_score else None,
         "layer1b_risk_recall": risk_score.to_dict(),
         "layer2_judge": summarize(verdicts) if verdicts else None,
         "escalations": len(queue),
+        "layer3_adjudication": summarize_adjudications(adjudications) if adjudications else None,
+        "awaiting_a_lawyer": len(for_humans),
         "layer3_agreement": agreement_report(load_reviews(results_dir)) if load_reviews(results_dir) else None,
-        "end_to_end": end_to_end_miss_rate(risk_score, verdicts, queue),
+        "end_to_end": end_to_end_miss_rate(risk_score, verdicts, queue, adjudications, len(for_humans)),
         "usage": {**meter.report(), "summary": meter.summary_line()},
         "results_dir": str(results_dir),
     }
@@ -372,7 +491,9 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="re-score a recorded run; makes no model calls")
     parser.add_argument("--replay", type=Path, help="which results directory --dry-run reads (default: the newest)")
     parser.add_argument("--compare", type=Path, help="a previous scorecard.json to diff this run against")
-    parser.add_argument("--no-judge", action="store_true", help="skip layer 2")
+    parser.add_argument("--no-judge", action="store_true", help="skip layer 2, and layer 3 with it")
+    parser.add_argument("--no-adjudicator", action="store_true", help="skip layer 3's expert model; queue everything for a human")
+    parser.add_argument("--adjudicate-limit", type=int, default=0, help="adjudicate only the worst N escalations")
     parser.add_argument("--no-extraction", action="store_true", help="skip layer 1a, the expensive per-category task")
     parser.add_argument(
         "--all-categories",

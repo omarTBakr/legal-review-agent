@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     llm_max_tokens: int = Field(16000, description="Maximum tokens the model may generate")
     llm_temperature: float = Field(0.2, description="Sampling temperature; legal advice wants determinism")
     openrouter_api_key: str = Field("", description="OpenRouter API key")
-    openrouter_model: str = Field("deepseek/deepseek-v4-flash", description="OpenRouter model id")
+    openrouter_model: str = Field("deepseek/deepseek-v4.1-flash", description="OpenRouter model id")
     openrouter_base_url: str = Field("https://openrouter.ai/api/v1", description="OpenRouter API base URL")
 
     # legal advice pipeline

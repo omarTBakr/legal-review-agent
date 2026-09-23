@@ -1,16 +1,21 @@
-"""A terminal form over the escalation queue.
+"""A terminal form over the queue a lawyer is left with.
 
 Shows one escalated finding at a time: the annotated clause, what the review
-said, and how the judge graded it, then asks six questions. The answers append
-to JSONL beside the queue, so an interrupted session keeps what it recorded and
-a second reviewer's answers sit next to the first's rather than overwriting them.
+said, how the judge graded it and what the expert model made of it, then asks six
+questions. The answers append to JSONL beside the queue, so an interrupted
+session keeps what it recorded and a second reviewer's answers sit next to the
+first's rather than overwriting them.
+
+Point it at `human_queue.jsonl` — the escalations the expert model could not
+settle — rather than `escalations.jsonl`, which is everything before layer 3
+triaged it. Passing a run directory picks the right one.
 
 Deliberately plain input(): a curses form would need a terminal to test and the
-job here is to get a lawyer's judgement written down, not to be pleasant. The
-judge's verdict is shown *after* the system output and before the questions, in
+job here is to get a lawyer's judgement written down, not to be pleasant. Both
+models' verdicts are shown *after* the system output and before the questions, in
 that order, because a reviewer who reads the grade first tends to agree with it.
 
-    uv run python -m evaluation.layer3_human.review <escalations.jsonl> [--reviewer name]
+    uv run python -m evaluation.layer3_expert.review evaluation/results/cuad-<run> [--reviewer name]
 """
 
 import argparse
@@ -85,6 +90,17 @@ def render(item: dict, position: int, total: int) -> str:
         "",
     ]
 
+    # the expert's opinion, when it had one and still wanted a lawyer to look
+    if item.get("expert_decision") or item.get("expert_reason"):
+        lines += [
+            "EXPERT MODEL:",
+            f"  decision {item.get('expert_decision') or '(none)'}  confidence {item.get('expert_confidence') or '(unstated)'}",
+            f"  reason: {item.get('expert_reason', '')}",
+        ]
+        if item.get("expert_material_omission"):
+            lines.append(f"  says the client is still exposed to: {item['expert_material_omission']}")
+        lines.append("")
+
     return "\n".join(lines)
 
 
@@ -134,6 +150,9 @@ def collect(item: dict, reviewer: str, reader=input) -> dict | None:
         "quote": item.get("quote", ""),
         "judge_total_score": item.get("total_score"),
         "judge_pass": item.get("pass"),
+        # copied in so agreement.py can compare all three without pairing files,
+        # the same reason judge_pass travels here
+        "expert_decision": item.get("expert_decision", ""),
         "escalation_reasons": item.get("escalation_reasons") or [],
         **answers,
     }
@@ -160,8 +179,26 @@ def already_reviewed(path: Path, reviewer: str) -> set[tuple[str, str, str]]:
     return done
 
 
+def resolve_queue(path: Path) -> Path:
+    """
+    Which file to review, given a run directory or a file.
+
+    A directory means the triaged queue, falling back to the untriaged one when
+    layer 3's model never ran. Reviewing `escalations.jsonl` when a
+    `human_queue.jsonl` exists would spend a lawyer's afternoon on findings the
+    expert already settled.
+    """
+    if not path.is_dir():
+        return path
+
+    triaged = path / "human_queue.jsonl"
+
+    return triaged if triaged.is_file() else path / "escalations.jsonl"
+
+
 def run(queue_path: Path, reviewer: str, reader=input) -> Path:
     """Works through the queue, appending each completed form."""
+    queue_path = resolve_queue(queue_path)
     items = [json.loads(line) for line in queue_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     responses = queue_path.parent / RESPONSES_FILE
     done = already_reviewed(responses, reviewer)
@@ -193,8 +230,8 @@ def run(queue_path: Path, reviewer: str, reader=input) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Review the escalation queue from a run.")
-    parser.add_argument("queue", type=Path, help="path to escalations.jsonl")
+    parser = argparse.ArgumentParser(description="Review what layer 3's model left for a lawyer.")
+    parser.add_argument("queue", type=Path, help="a results/cuad-<run> directory, or a JSONL queue directly")
     parser.add_argument("--reviewer", default="", help="who is reviewing; asked for if omitted")
     arguments = parser.parse_args()
 
