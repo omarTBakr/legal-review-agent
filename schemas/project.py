@@ -62,6 +62,10 @@ class ProjectReview:
     workflow_id: str
     pdf_keys: list[str] = field(default_factory=list)
     submitted_at: str = ""
+    # the earlier review this one is a new round of; empty for a first draft.
+    # Set at submit, so the chain is recorded when it is known rather than
+    # guessed at afterwards from filenames and timestamps
+    supersedes: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -70,6 +74,7 @@ class ProjectReview:
             "pdf_keys": list(self.pdf_keys),
             "submitted_at": self.submitted_at,
             "document_count": len(self.pdf_keys),
+            "supersedes": self.supersedes,
         }
 
     @classmethod
@@ -79,4 +84,6 @@ class ProjectReview:
             workflow_id=str(raw.get("workflow_id", "")),
             pdf_keys=[str(key) for key in raw.get("pdf_keys", [])],
             submitted_at=str(raw.get("submitted_at", "")),
+            # records written before rounds existed simply have none
+            supersedes=str(raw.get("supersedes", "")),
         )

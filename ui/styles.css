@@ -1442,3 +1442,65 @@ textarea {
   width: min(420px, 100%);
   margin: 0;
 }
+
+/* Comparing two rounds of a contract. */
+.compare-verdict {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.compare-better {
+  color: var(--ok);
+}
+
+.compare-worse {
+  color: var(--danger);
+}
+
+.change-group {
+  margin-top: 20px;
+}
+
+.change-group h4 {
+  margin: 0 0 2px;
+}
+
+/* A stripe in the severity colour of the news, so the eye finds "new" first. */
+.change {
+  border-left: 3px solid transparent;
+  padding-left: 10px;
+}
+
+.change-new {
+  border-left-color: var(--danger);
+}
+
+.change-worse {
+  border-left-color: var(--warn);
+}
+
+.change-fixed {
+  border-left-color: var(--ok);
+}
+
+.change-better {
+  border-left-color: var(--ok);
+}
+
+/* A round sits under the review it supersedes. */
+.project-list .is-round {
+  margin-left: 18px;
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+}
+
+.compare-link {
+  display: inline-block;
+  margin: 2px 0 8px 12px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.compare-link:hover {
+  text-decoration: underline;
+}

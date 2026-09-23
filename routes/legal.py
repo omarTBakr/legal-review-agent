@@ -37,6 +37,7 @@ async def submit(
     files: list[UploadFile] = File(...),
     project_id: str = Form(""),
     email: str = Form(""),
+    supersedes: str = Form(""),
 ) -> dict:
     """
     Accepts several PDFs, stores them and starts the legal review workflow.
@@ -48,6 +49,10 @@ async def submit(
     the review is recorded against it. `email` overrides the project's own
     address for this review; either way, an address means the finished report
     is emailed there.
+
+    `supersedes` is the task id of an earlier review in the same project that
+    this one is a new round of, which is what
+    `GET /projects/{id}/compare` follows to say what the counterparty fixed.
     """
     settings = get_setting()
 
@@ -86,7 +91,7 @@ async def submit(
         if project:
             # recorded after the workflow starts, so a record never points at a
             # review that was never begun
-            await asyncio.to_thread(record_review, project.id, task_id, handle.id, pdf_keys, settings)
+            await asyncio.to_thread(record_review, project.id, task_id, handle.id, pdf_keys, settings, supersedes)
 
     response.status_code = ACCEPTED
     return accepted_response(task_id, pdf_keys, bucket or settings.s3_pdf_bucket, project.id if project else "")

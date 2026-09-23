@@ -156,11 +156,30 @@ def list_projects(settings: Settings) -> list[Project]:
     return sorted(projects, key=lambda project: project.created_at, reverse=True)
 
 
-def record_review(project_id: str, task_id: str, workflow_id: str, pdf_keys: list[str], settings: Settings) -> ProjectReview:
-    """Remembers that a review was submitted into this project."""
+def record_review(
+    project_id: str,
+    task_id: str,
+    workflow_id: str,
+    pdf_keys: list[str],
+    settings: Settings,
+    supersedes: str = "",
+) -> ProjectReview:
+    """
+    Remembers that a review was submitted into this project.
+
+    `supersedes` names the earlier review this one is a new round of, so
+    `GET /projects/{id}/compare` has a chain to follow rather than having to
+    guess one from filenames and timestamps.
+    """
     project_id = check_project_id(project_id)
 
-    review = ProjectReview(task_id=task_id, workflow_id=workflow_id, pdf_keys=list(pdf_keys), submitted_at=_now())
+    review = ProjectReview(
+        task_id=task_id,
+        workflow_id=workflow_id,
+        pdf_keys=list(pdf_keys),
+        submitted_at=_now(),
+        supersedes=supersedes,
+    )
     body = json.dumps(review.to_dict(), indent=2).encode("utf-8")
 
     upload_s3_file(body, settings.s3_projects, review_key(project_id, task_id))

@@ -12,6 +12,7 @@ import { byId } from "./dom.js";
 import { parse } from "./router.js";
 import { renderRecent, clearRecent } from "./sidebar.js";
 import { showNewReview } from "./views/new-review.js";
+import { showComparison } from "./views/compare.js";
 import { askForKey } from "./views/key.js";
 import { showProject } from "./views/project.js";
 import { showProjects } from "./views/projects.js";
@@ -24,6 +25,7 @@ const VIEWS = {
   "new-review": (route) => showNewReview(route.projectId),
   review: (route) => showReview(route.taskId, route.projectId),
   project: (route) => showProject(route.projectId),
+  compare: (route) => showComparison(route.projectId, route.base, route.against),
   projects: () => showProjects(),
 };
 

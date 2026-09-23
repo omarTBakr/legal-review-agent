@@ -5,7 +5,7 @@
 
 import { fetchProject, startReview } from "../api.js";
 import { byId, el, setBusy, showInlineError } from "../dom.js";
-import { formatBytes, plural } from "../format.js";
+import { displayName, formatBytes, plural, relativeDate } from "../format.js";
 import { rememberReview } from "../store.js";
 
 // files chosen for the next review; cleared once it has been submitted
@@ -66,6 +66,23 @@ export async function showNewReview(projectId = "") {
     autocomplete: "email",
   });
 
+  // "this is round two of that one", which is what the comparison follows.
+  // Only offered inside a project, because a review with no project has no
+  // list of earlier ones to point at.
+  const earlier = (project && project.reviews) || [];
+  const supersedes = el(
+    "select",
+    { id: "supersedes" },
+    el("option", { value: "" }, "A new document"),
+    ...earlier.map((review) =>
+      el(
+        "option",
+        { value: review.task_id },
+        `${(review.pdf_keys || []).map(displayName)[0] || review.task_id} · ${relativeDate(review.submitted_at) || ""}`,
+      ),
+    ),
+  );
+
   byId("main").replaceChildren(
     el(
       "section",
@@ -81,6 +98,19 @@ export async function showNewReview(projectId = "") {
       project ? el("input", { type: "hidden", id: "project-id", value: project.id }) : null,
       dropzone,
       el("ul", { class: "file-list", id: "file-list" }),
+      earlier.length
+        ? el(
+            "div",
+            { class: "field" },
+            el("label", { for: "supersedes" }, "Is this a new round of an earlier review?"),
+            supersedes,
+            el(
+              "p",
+              { class: "muted small" },
+              "Say so and you can see what the other side fixed, and what they added while they were there.",
+            ),
+          )
+        : null,
       el(
         "div",
         { class: "field" },
@@ -196,12 +226,13 @@ async function submit() {
   const button = byId("submit");
   const projectId = byId("project-id") ? byId("project-id").value : "";
   const email = byId("report-email").value.trim();
+  const supersedes = byId("supersedes") ? byId("supersedes").value : "";
 
   setBusy(button, true, "Uploading…");
   showInlineError(byId("submit-error"), "");
 
   try {
-    const body = await startReview(chosen, { projectId, email });
+    const body = await startReview(chosen, { projectId, email, supersedes });
     rememberReview({
       taskId: body.task_id,
       files: chosen.map((file) => file.name),

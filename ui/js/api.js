@@ -16,6 +16,8 @@ export const endpoints = {
   projects: "/projects",
   project: (projectId) => `/projects/${encodeURIComponent(projectId)}`,
   projectReview: (projectId, taskId) => `/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(taskId)}`,
+  compare: (projectId, base, against) =>
+    `/projects/${encodeURIComponent(projectId)}/compare?base=${encodeURIComponent(base)}&against=${encodeURIComponent(against)}`,
   chat: (projectId, taskId) => `/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(taskId)}/chat`,
   chatStream: (projectId, taskId) =>
     `/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(taskId)}/chat/stream`,
@@ -138,11 +140,12 @@ function postJson(path, payload) {
 
 /* --- reviews ------------------------------------------------------------- */
 
-export function startReview(files, { projectId = "", email = "" } = {}) {
+export function startReview(files, { projectId = "", email = "", supersedes = "" } = {}) {
   const form = new FormData();
   for (const file of files) form.append("files", file, file.name);
   if (projectId) form.append("project_id", projectId);
   if (email) form.append("email", email);
+  if (supersedes) form.append("supersedes", supersedes);
 
   return api(endpoints.legal, { method: "POST", body: form });
 }
@@ -171,6 +174,11 @@ export function fetchProject(projectId) {
 
 export function fetchStoredReview(projectId, taskId) {
   return api(endpoints.projectReview(projectId, taskId));
+}
+
+/** What changed between two rounds. No model call, so this is quick. */
+export function fetchComparison(projectId, base, against) {
+  return api(endpoints.compare(projectId, base, against));
 }
 
 /* --- chat ---------------------------------------------------------------- */

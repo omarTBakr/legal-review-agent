@@ -156,3 +156,118 @@ def test_an_unknown_review_is_a_404(client, s3, settings):
     project = create_project("Acme", settings)
 
     assert client.get(f"/projects/{project.id}/reviews/nope").status_code == 404
+
+
+# --- GET /projects/{id}/compare -------------------------------------------
+
+
+def store_risks(s3, settings, pdf_key, risks):
+    """Finished advice with whatever risks the test needs."""
+    document = {
+        "task_id": "abc123",
+        "pdf_key": pdf_key,
+        "summary": "A services agreement.",
+        "key_risks": [
+            {
+                "description": description,
+                "severity": severity,
+                "location": "",
+                "quote": quote,
+                "page": 1,
+                "quote_verified": True,
+            }
+            for description, severity, quote in risks
+        ],
+        "review_decision": ReviewDecision.AUTO_APPROVED.value,
+        "question": "",
+    }
+    s3.objects[(settings.s3_projects, advice_key(pdf_key))] = json.dumps(document).encode()
+
+
+UNCAPPED = "The Supplier's total liability under this Agreement shall be unlimited in all respects."
+INDEMNITY = "The Client shall indemnify the Supplier against any and all claims arising from the Services."
+
+
+@pytest.fixture
+def two_rounds(s3, settings):
+    """A project with round one and round two of the same contract."""
+    project = create_project("Acme", settings)
+
+    first = f"{project.prefix}services-aaaaaaaa.pdf"
+    second = f"{project.prefix}services-bbbbbbbb.pdf"
+
+    store_risks(s3, settings, first, [("liability is unlimited", "critical", UNCAPPED)])
+    store_risks(s3, settings, second, [("one-sided indemnity", "high", INDEMNITY)])
+
+    record_review(project.id, "round1", "legal-review-round1", [first], settings)
+    record_review(project.id, "round2", "legal-review-round2", [second], settings, supersedes="round1")
+
+    return project
+
+
+def test_comparing_two_rounds_reports_what_moved(client, two_rounds):
+    response = client.get(f"/projects/{two_rounds.id}/compare", params={"base": "round1", "against": "round2"})
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["totals"]["fixed"] == 1
+    assert body["totals"]["new"] == 1
+    # traded a critical away for a high: better on balance
+    assert body["totals"]["net_severity_change"] == -1
+    assert body["document_count"] == 1
+
+
+def test_the_comparison_names_both_documents(client, two_rounds):
+    body = client.get(f"/projects/{two_rounds.id}/compare", params={"base": "round1", "against": "round2"}).json()
+    document = body["documents"][0]
+
+    assert document["document"].endswith("services-bbbbbbbb.pdf")
+    assert document["base_document"].endswith("services-aaaaaaaa.pdf")
+    assert {change["verdict"] for change in document["changes"]} == {"fixed", "new"}
+
+
+def test_comparing_a_review_with_itself_shows_nothing_moved(client, two_rounds):
+    body = client.get(f"/projects/{two_rounds.id}/compare", params={"base": "round1", "against": "round1"}).json()
+
+    assert body["totals"]["unchanged"] == 1
+    assert body["totals"]["net_severity_change"] == 0
+
+
+def test_comparing_against_a_missing_review_is_404(client, two_rounds):
+    response = client.get(f"/projects/{two_rounds.id}/compare", params={"base": "round1", "against": "nope"})
+
+    assert response.status_code == 404
+
+
+def test_comparing_inside_a_missing_project_is_404(client):
+    response = client.get("/projects/no-such-project/compare", params={"base": "a", "against": "b"})
+
+    assert response.status_code == 404
+
+
+def test_a_document_with_no_advice_yet_is_reported_not_compared(client, s3, settings):
+    """Round two is still running: say so rather than calling every risk fixed."""
+    project = create_project("Acme", settings)
+    first = f"{project.prefix}services-aaaaaaaa.pdf"
+    second = f"{project.prefix}services-bbbbbbbb.pdf"
+
+    store_risks(s3, settings, first, [("liability is unlimited", "critical", UNCAPPED)])
+    record_review(project.id, "round1", "legal-review-round1", [first], settings)
+    record_review(project.id, "round2", "legal-review-round2", [second], settings, supersedes="round1")
+
+    body = client.get(f"/projects/{project.id}/compare", params={"base": "round1", "against": "round2"}).json()
+
+    assert body["documents"] == []
+    assert body["not_reviewed_yet"] == [second]
+
+
+def test_a_review_records_what_it_supersedes(client, settings):
+    project = create_project("Acme", settings)
+    record_review(project.id, "round1", "legal-review-round1", ["a.pdf"], settings)
+    record_review(project.id, "round2", "legal-review-round2", ["b.pdf"], settings, supersedes="round1")
+
+    reviews = {review["task_id"]: review for review in client.get(f"/projects/{project.id}").json()["reviews"]}
+
+    assert reviews["round2"]["supersedes"] == "round1"
+    assert reviews["round1"]["supersedes"] == ""
