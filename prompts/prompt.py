@@ -15,6 +15,9 @@ class Prompt:
     name: PromptName
     system: str
     user_template: str
+    # most replies here are parsed as JSON; a prompt that wants prose says so,
+    # and the client stops demanding a JSON object for it
+    expects_json: bool = True
 
     def render(self, **variables) -> str:
         """

@@ -2,27 +2,33 @@ import asyncio
 from datetime import timedelta
 
 from temporalio import workflow
+from temporalio.exceptions import ActivityError
 
 # The workflow sandbox re-imports this module; anything doing real I/O at import
 # time has to be passed through rather than re-executed inside the sandbox.
 with workflow.unsafe.imports_passed_through():
     from activities.analyze_batch import analyze_batch
+    from activities.cleanup_scratch import cleanup_scratch
     from activities.download_pdf import download_pdf
     from activities.human_followup import human_followup
     from activities.merge_advice import merge_advice
+    from activities.send_report import send_report
     from activities.split_pages import split_pages
     from activities.upload_advice import upload_advice
     from enums.RetryPolicy.LLMRetryPolicy import LLMRetryPolicy
     from enums.RetryPolicy.ParsingRetryPolicy import ParsingRetryPolicy
     from enums.RetryPolicy.StorageRetryPolicy import StorageRetryPolicy
+    from enums.RetryPolicy.StrictRetryPolicy import StrictRetryPolicy
     from enums.ReviewDecision import ReviewDecision
     from enums.TaskStatus import TaskStatus
     from schemas.analyze_batch import AnalyzeBatchInput
+    from schemas.cleanup_scratch import CleanupScratchInput
     from schemas.download_pdf import DownloadPdfInput
     from schemas.human_followup import HumanFollowupInput
     from schemas.legal_advice import LegalAdvice
     from schemas.legal_review import DocumentAdvice, LegalReviewInput, LegalReviewResult
     from schemas.merge_advice import MergeAdviceInput
+    from schemas.send_report import SendReportInput
     from schemas.split_pages import SplitPagesInput
     from schemas.upload_advice import UploadAdviceInput
 
@@ -30,6 +36,7 @@ STORAGE_TIMEOUT = timedelta(minutes=1)
 SPLIT_TIMEOUT = timedelta(minutes=10)
 # a model call is slow and the policy already backs off; leave room for retries
 LLM_TIMEOUT = timedelta(minutes=10)
+EMAIL_TIMEOUT = timedelta(minutes=2)
 
 
 @workflow.defn
@@ -69,16 +76,86 @@ class LegalReviewWorkflow:
 
         workflow.logger.info("[task %s] finished %d document(s)", payload.task_id, len(documents))
 
+        await self._email_report(payload, list(documents))
+
         return LegalReviewResult(task_id=payload.task_id, documents=list(documents))
 
+    async def _email_report(self, payload: LegalReviewInput, documents: list[DocumentAdvice]) -> None:
+        """
+        Emails the finished review, when an address was given.
+
+        A review that was completed but could not be emailed is still a
+        completed review: the advice is in the bucket and the API serves it.
+        Failing the workflow here would throw that away over a mail server, so
+        the failure is logged and swallowed once Temporal's retries are spent.
+        """
+        if not payload.report_email:
+            return
+
+        try:
+            result = await workflow.execute_activity(
+                send_report,
+                SendReportInput(
+                    task_id=payload.task_id,
+                    recipient=payload.report_email,
+                    documents=documents,
+                    project_name=payload.project_name,
+                ),
+                start_to_close_timeout=EMAIL_TIMEOUT,
+                retry_policy=StorageRetryPolicy(),
+            )
+        except ActivityError:
+            workflow.logger.exception("[task %s] the report could not be emailed", payload.task_id)
+            return
+
+        if not result.sent:
+            workflow.logger.warning("[task %s] report not emailed: %s", payload.task_id, result.reason)
+
     async def _review_one(self, payload: LegalReviewInput, pdf_key: str, gate: asyncio.Semaphore) -> DocumentAdvice:
+        local_files: list[str] = []
+
+        try:
+            return await self._review(payload, pdf_key, gate, local_files)
+        finally:
+            # whether it succeeded, failed or timed out, the scratch copies go:
+            # the bucket has the document, the worker's disk only had it to parse
+            await self._cleanup(payload, pdf_key, local_files)
+
+    async def _cleanup(self, payload: LegalReviewInput, pdf_key: str, paths: list[str]) -> None:
+        """
+        Removes the local copies once a document is done with them.
+
+        Behind a patch because it adds an activity to the run: a review that
+        started before this change has no such step in its history, and
+        replaying it against unpatched code would diverge and kill a workflow
+        that may have been waiting on a human for an hour.
+        """
+        if not paths or not workflow.patched("cleanup-scratch-v1"):
+            return
+
+        try:
+            await workflow.execute_activity(
+                cleanup_scratch,
+                CleanupScratchInput(task_id=payload.task_id, pdf_key=pdf_key, paths=paths),
+                start_to_close_timeout=STORAGE_TIMEOUT,
+                retry_policy=StrictRetryPolicy(),
+            )
+        except ActivityError:
+            # a review that produced its advice must not fail over a file
+            workflow.logger.warning("[task %s] could not clean up after %s", payload.task_id, pdf_key)
+
+    async def _review(
+        self, payload: LegalReviewInput, pdf_key: str, gate: asyncio.Semaphore, local_files: list[str]
+    ) -> DocumentAdvice:
         async with gate:
             fetched = await workflow.execute_activity(
                 download_pdf,
-                DownloadPdfInput(task_id=payload.task_id, key=pdf_key),
+                DownloadPdfInput(task_id=payload.task_id, key=pdf_key, bucket=payload.bucket),
                 start_to_close_timeout=STORAGE_TIMEOUT,
                 retry_policy=StorageRetryPolicy(),
             )
+
+            local_files.append(fetched.local_path)
 
             split = await workflow.execute_activity(
                 split_pages,
@@ -87,6 +164,7 @@ class LegalReviewWorkflow:
                     pdf_key=pdf_key,
                     local_pdf=fetched.local_path,
                     pages_per_batch=payload.pages_per_batch,
+                    md_bucket=payload.bucket,
                 ),
                 start_to_close_timeout=SPLIT_TIMEOUT,
                 retry_policy=ParsingRetryPolicy(),
@@ -109,7 +187,7 @@ class LegalReviewWorkflow:
 
         stored = await workflow.execute_activity(
             upload_advice,
-            UploadAdviceInput(task_id=payload.task_id, pdf_key=pdf_key, advice=advice),
+            UploadAdviceInput(task_id=payload.task_id, pdf_key=pdf_key, advice=advice, bucket=payload.bucket),
             start_to_close_timeout=STORAGE_TIMEOUT,
             retry_policy=StorageRetryPolicy(),
         )

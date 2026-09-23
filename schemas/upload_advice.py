@@ -10,6 +10,8 @@ class UploadAdviceInput:
     task_id: str
     pdf_key: str
     advice: LegalAdvice
+    # where the advice is stored; empty means S3_LEGAL_ADVICE
+    bucket: str = ""
 
 
 @dataclass

@@ -1,0 +1,42 @@
+# Runs the voice service with the model cache on a volume.
+#
+#   docker compose -f voice/Docker/docker-compose.yml up -d --build
+#   docker compose -f voice/Docker/docker-compose.yml logs -f
+#
+# The first start downloads about 2 GB of weights into the `models` volume;
+# every start after that reads them from there. `down` keeps the volume.
+
+name: legal-review-agent-voice
+
+services:
+  voice:
+    build:
+      # voice/ only: this service shares no code with the rest of the project
+      context: ..
+      dockerfile: Docker/Dockerfile
+    image: legal-review-agent-voice
+    ports:
+      # the API reaches it here; do not publish this port to the internet,
+      # there is no authentication in front of it
+      - "127.0.0.1:8100:8100"
+    environment:
+      # the recogniser; the voice picks the GPU up on its own and barely uses it
+      VOICE_DEVICE: cuda
+      VOICE_DTYPE: bfloat16
+      TTS_ENGINE: kokoro
+      TTS_LANGUAGE: English
+    volumes:
+      # the weights, so a rebuilt container does not download them again
+      - models:/home/voice/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  models:
+    name: legal-review-agent-voice-models

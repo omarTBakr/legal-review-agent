@@ -5,7 +5,8 @@ from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
 
-from exceptions import AIAgentError, ParsingError, StorageError, ValidationError
+from exceptions import AIAgentError, ParsingError, StorageError, UploadTooLargeError, ValidationError
+from exceptions.voice import VoiceError, VoiceUnavailableError
 from exceptions.workflow import TemporalConnectionError, WorkflowExecutionError
 from utils.logger import get_logger
 
@@ -25,6 +26,10 @@ def http_errors(context: str):
     """
     try:
         yield
+    except UploadTooLargeError as exc:
+        # its own status: "too big" is a different fix from "not a PDF"
+        logger.warning("upload refused for %s: %s", context, exc)
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     except ValidationError as exc:
         # the caller sent something unusable
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -35,6 +40,13 @@ def http_errors(context: str):
     except StorageError as exc:
         logger.error("storage failed for %s: %s", context, exc)
         raise HTTPException(status_code=502, detail=f"storage error: {exc}") from exc
+    except VoiceUnavailableError as exc:
+        # the voice service is a separate process; it being down is not a bug here
+        logger.error("voice service unavailable for %s: %s", context, exc)
+        raise HTTPException(status_code=503, detail=f"voice service unavailable: {exc}") from exc
+    except VoiceError as exc:
+        logger.warning("voice failed for %s: %s", context, exc)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (TemporalConnectionError, RPCError) as exc:
         logger.error("temporal unreachable for %s: %s", context, exc)
         raise HTTPException(status_code=503, detail=f"temporal unavailable: {exc}") from exc

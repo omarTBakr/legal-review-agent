@@ -1,0 +1,64 @@
+[project]
+name = "legal-review-voice"
+version = "0.1.0"
+description = "Speech in and out for the legal review agent: Qwen3-ASR and Qwen3-TTS behind HTTP"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+
+# A project of its own, not an extra on the parent. torch and transformers are
+# gigabytes, and the API, both workers and CI have no use for them. Only this
+# service needs a GPU.
+dependencies = [
+    "fastapi>=0.141.1",
+    "numpy>=2.1",
+    "python-multipart>=0.0.32",
+    "bitsandbytes>=0.45",
+    "qwen-asr>=0.0.6",
+    "qwen-tts>=0.1.1",
+    "soundfile>=0.13",
+    "torch>=2.6",
+    "uvicorn[standard]>=0.52.4",
+    "kokoro>=0.9",
+    "huggingface-hub>=0.26",
+]
+
+[tool.uv]
+# Both Qwen packages pin transformers to an exact patch — qwen-asr to 4.57.6,
+# qwen-tts to 4.57.3 — so they cannot be installed together without saying
+# which one wins. They are the same minor version and the APIs both use are
+# unchanged between the two patches; the loaded models are checked at startup.
+override-dependencies = ["transformers==4.57.6"]
+
+[dependency-groups]
+dev = [
+    "black>=26.5.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.6",
+]
+
+[tool.black]
+line-length = 130
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 130
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+# this service's own modules sit beside main.py rather than in a package
+known-first-party = ["asr", "audio", "config", "logger", "tts"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom puts these calls in argument defaults
+extend-immutable-calls = ["fastapi.Body", "fastapi.File", "fastapi.Form"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+addopts = "-q"

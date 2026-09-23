@@ -7,3 +7,4 @@ class PromptName(Enum):
     LEGAL_ADVICE = "legal_advice"
     MERGE_ADVICE = "merge_advice"
     HUMAN_FOLLOWUP = "human_followup"
+    REVIEW_CHAT = "review_chat"

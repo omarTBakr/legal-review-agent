@@ -8,6 +8,7 @@ from interfaces import get_llm
 from prompts import get_prompt
 from schemas.legal_advice import LegalAdvice
 from schemas.merge_advice import MergeAdviceInput, MergeAdviceOutput
+from utils.evidence import carry_verification
 
 
 def _as_text(parts: list[LegalAdvice]) -> str:
@@ -16,10 +17,7 @@ def _as_text(parts: list[LegalAdvice]) -> str:
         json.dumps(
             {
                 "summary": part.summary,
-                "key_risks": [
-                    {"description": risk.description, "severity": risk.severity.value, "location": risk.location}
-                    for risk in part.key_risks
-                ],
+                "key_risks": [risk.to_prompt_dict() for risk in part.key_risks],
                 "needs_human": part.needs_human,
                 "question": part.question,
             },
@@ -60,6 +58,9 @@ async def merge_advice(payload: MergeAdviceInput) -> MergeAdviceOutput:
     except Exception:
         activity.logger.exception("[task %s] failed to merge advice for %s", payload.task_id, payload.pdf_key)
         raise
+
+    # the merge never sees the pages, so only quotes it kept intact stay verified
+    advice.key_risks = carry_verification(advice.key_risks, [risk for part in payload.parts for risk in part.key_risks])
 
     activity.logger.info(
         "[task %s] %s merged into %d risk(s)%s",

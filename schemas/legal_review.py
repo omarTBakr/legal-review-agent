@@ -12,6 +12,13 @@ class LegalReviewInput:
     pages_per_batch: int = 30
     max_concurrent_pdfs: int = 10
     human_input_timeout_seconds: float = 3600
+    # where the finished report goes; empty means no email is sent
+    report_email: str = ""
+    project_id: str = ""
+    project_name: str = ""
+    # the bucket holding this review's documents, their text and their advice:
+    # a project's own, or empty for the pipeline's default buckets
+    bucket: str = ""
 
 
 @dataclass

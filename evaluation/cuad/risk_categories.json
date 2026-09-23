@@ -1,0 +1,270 @@
+{
+  "about": [
+    "Which of CUAD's 41 categories are risks our review is supposed to surface, and what",
+    "our review calls them. Curated by hand: CUAD annotates clauses a lawyer should read",
+    "in a corporate transaction, which is a wider question than 'what exposes our client'.",
+    "",
+    "risky=false is not 'harmless'. It means the category is either metadata (who signed,",
+    "when it starts) or an annotation whose riskiness depends on terms CUAD does not",
+    "record, so counting a miss against the review would be measuring the benchmark's",
+    "framing rather than the review's judgement. Layer 1b's recall denominator is the",
+    "risky=true spans only.",
+    "",
+    "high_stakes=true sends a judge verdict to a human however confident the judge was.",
+    "'names' are the words our prompts and our reviewers use for the same clause; they",
+    "are documentation, not matching keys — span matching is Jaccard over text.",
+    "",
+    "Missing on purpose: indemnities. CUAD v1 has no indemnity category, so the review's",
+    "indemnity findings land in off_benchmark_findings and no recall number covers them.",
+    "testingDocs/expected.json does cover indemnities, which is part of why the fixture",
+    "suite is not redundant with this one."
+  ],
+  "categories": {
+    "Uncapped Liability": {
+      "risky": true,
+      "high_stakes": true,
+      "names": ["unlimited liability", "uncapped liability", "no liability cap"],
+      "note": "The single worst thing in a commercial contract; critical severity if it is one-sided."
+    },
+    "Cap On Liability": {
+      "risky": true,
+      "high_stakes": true,
+      "names": ["liability cap", "limitation of liability", "capped liability"],
+      "note": "Risky as an asymmetry: a cap on their side beside none on ours is the finding."
+    },
+    "Liquidated Damages": {
+      "risky": true,
+      "high_stakes": true,
+      "names": ["liquidated damages", "penalty", "fixed damages"],
+      "note": "A pre-agreed number that bypasses proof of loss."
+    },
+    "Covenant Not To Sue": {
+      "risky": true,
+      "high_stakes": true,
+      "names": ["covenant not to sue", "waiver of claims", "release"],
+      "note": "Gives up a remedy outright."
+    },
+    "Ip Ownership Assignment": {
+      "risky": true,
+      "high_stakes": true,
+      "names": ["IP ownership", "IP assignment", "ownership of deliverables"],
+      "note": "Who owns what was made, and whether the client's own materials went with it."
+    },
+    "Joint Ip Ownership": {
+      "risky": true,
+      "high_stakes": true,
+      "names": ["joint IP ownership", "shared IP"],
+      "note": "Joint ownership is rarely what either side wanted and is hard to exploit."
+    },
+    "Irrevocable Or Perpetual License": {
+      "risky": true,
+      "high_stakes": true,
+      "names": ["perpetual licence", "irrevocable licence"],
+      "note": "A grant that cannot be taken back, including after termination."
+    },
+    "Unlimited/All-You-Can-Eat-License": {
+      "risky": true,
+      "high_stakes": true,
+      "names": ["unlimited licence", "unrestricted licence"],
+      "note": "Unmetered use of something that was priced per seat or per unit."
+    },
+    "Non-Transferable License": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["non-transferable licence", "licence not assignable"],
+      "note": "Blocks a reorganisation or a sale of the business that relies on the licence."
+    },
+    "Termination For Convenience": {
+      "risky": true,
+      "high_stakes": true,
+      "names": ["termination for convenience", "termination at will", "termination without cause"],
+      "note": "Risky as an asymmetry: their right to walk beside our obligation to stay."
+    },
+    "Post-Termination Services": {
+      "risky": true,
+      "high_stakes": true,
+      "names": ["post-termination obligations", "transition services", "survival"],
+      "note": "Work that outlives the contract, sometimes unpriced."
+    },
+    "Renewal Term": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["automatic renewal", "auto-renewal", "evergreen term"],
+      "note": "Rolls the term over unless someone remembers to act."
+    },
+    "Notice Period To Terminate Renewal": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["renewal notice period", "notice to prevent renewal"],
+      "note": "A long window is how an auto-renewal becomes a multi-year commitment."
+    },
+    "Non-Compete": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["non-compete", "restrictive covenant", "competition restriction"],
+      "note": "Restrains our own business, often past termination."
+    },
+    "Exclusivity": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["exclusivity", "exclusive dealing", "sole supplier"],
+      "note": "Forecloses every other supplier or channel."
+    },
+    "No-Solicit Of Customers": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["non-solicitation of customers", "customer non-solicit"],
+      "note": "Limits who we may sell to after the deal."
+    },
+    "No-Solicit Of Employees": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["non-solicitation of employees", "no-poach", "employee non-solicit"],
+      "note": "Limits hiring; watch for it covering people who approach us unprompted."
+    },
+    "Non-Disparagement": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["non-disparagement", "no criticism"],
+      "note": "Restrains speech, including honest public comment."
+    },
+    "Anti-Assignment": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["assignment restriction", "anti-assignment", "no assignment"],
+      "note": "Risky as an asymmetry, and a blocker in any sale of the business."
+    },
+    "Change Of Control": {
+      "risky": true,
+      "high_stakes": true,
+      "names": ["change of control", "change of ownership"],
+      "note": "Lets the counterparty react to our own acquisition."
+    },
+    "Rofr/Rofo/Rofn": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["right of first refusal", "right of first offer", "right of first negotiation"],
+      "note": "Constrains a future transaction before it is contemplated."
+    },
+    "Most Favored Nation": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["most favoured nation", "MFN", "best pricing"],
+      "note": "Ties every other customer's price to this one."
+    },
+    "Minimum Commitment": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["minimum commitment", "take or pay", "minimum purchase"],
+      "note": "Spend owed whether or not it is used."
+    },
+    "Volume Restriction": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["volume restriction", "quantity cap"],
+      "note": "Caps how much we may buy or sell."
+    },
+    "Price Restrictions": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["price restriction", "price increase right", "repricing"],
+      "note": "A unilateral right to change the price is the usual shape."
+    },
+    "Revenue/Profit Sharing": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["revenue share", "profit share", "royalty"],
+      "note": "An ongoing claim on our revenue."
+    },
+    "Audit Rights": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["audit rights", "inspection rights"],
+      "note": "Access to our records and premises, sometimes at our cost."
+    },
+    "Source Code Escrow": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["source code escrow", "escrow release"],
+      "note": "Relevant when absent as well as present; CUAD only annotates present."
+    },
+    "Third Party Beneficiary": {
+      "risky": true,
+      "high_stakes": false,
+      "names": ["third-party beneficiary", "third party rights"],
+      "note": "Someone who did not sign can enforce against us."
+    },
+    "Document Name": {
+      "risky": false,
+      "high_stakes": false,
+      "names": ["document type"],
+      "note": "Metadata. The review summarises the document; it does not flag its title."
+    },
+    "Parties": {
+      "risky": false,
+      "high_stakes": false,
+      "names": ["parties"],
+      "note": "Metadata."
+    },
+    "Agreement Date": {
+      "risky": false,
+      "high_stakes": false,
+      "names": ["agreement date"],
+      "note": "Metadata."
+    },
+    "Effective Date": {
+      "risky": false,
+      "high_stakes": false,
+      "names": ["effective date"],
+      "note": "Metadata."
+    },
+    "Expiration Date": {
+      "risky": false,
+      "high_stakes": false,
+      "names": ["expiry date", "initial term"],
+      "note": "Metadata. The term's length is a risk; the date it ends is not."
+    },
+    "Governing Law": {
+      "risky": false,
+      "high_stakes": false,
+      "names": ["governing law", "jurisdiction"],
+      "note": "Which law applies is metadata. A governing law left blank is a risk, and CUAD has no annotation for an absent clause, so the review cannot be scored on it here."
+    },
+    "License Grant": {
+      "risky": false,
+      "high_stakes": false,
+      "names": ["licence grant"],
+      "note": "Every licence agreement has one; the risk is in its scope, which the narrower licence categories cover."
+    },
+    "Affiliate License-Licensor": {
+      "risky": false,
+      "high_stakes": false,
+      "names": ["affiliate licence (licensor)"],
+      "note": "Scope detail. Risky only in combination with terms CUAD does not annotate."
+    },
+    "Affiliate License-Licensee": {
+      "risky": false,
+      "high_stakes": false,
+      "names": ["affiliate licence (licensee)"],
+      "note": "Usually in our favour."
+    },
+    "Competitive Restriction Exception": {
+      "risky": false,
+      "high_stakes": false,
+      "names": ["carve-out from non-compete"],
+      "note": "An exception that reduces a restriction. Flagging it as a risk would be wrong."
+    },
+    "Insurance": {
+      "risky": false,
+      "high_stakes": false,
+      "names": ["insurance obligation"],
+      "note": "An obligation whose weight is the required limits, which CUAD's span does not isolate."
+    },
+    "Warranty Duration": {
+      "risky": false,
+      "high_stakes": false,
+      "names": ["warranty period"],
+      "note": "A short warranty is a risk and a long one is not; the annotation does not say which."
+    }
+  }
+}

@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     temporal_task_queue: str = Field("process_pdf_queue", description="Task queue the workflow and activities are polled from")
     log_level: str = Field("INFO", description="Root log level: DEBUG, INFO, WARNING, ERROR")
     run_worker_in_api: bool = Field(False, description="Run the Temporal worker inside the API process")
+    # empty leaves every route open, which is fine on a laptop and nowhere else;
+    # utils/auth.py warns at startup when it is
+    api_key: str = Field("", description="Shared secret required on the X-API-Key header")
 
     # LLM
     llm_provider: str = Field("openrouter", description="Which LLMInterface implementation the factory returns")
@@ -28,16 +31,38 @@ class Settings(BaseSettings):
     llm_max_tokens: int = Field(16000, description="Maximum tokens the model may generate")
     llm_temperature: float = Field(0.2, description="Sampling temperature; legal advice wants determinism")
     openrouter_api_key: str = Field("", description="OpenRouter API key")
-    openrouter_model: str = Field("deepseek/deepseek-v4-flash", description="OpenRouter model id")
+    openrouter_model: str = Field("deepseek/deepseek-v4.1-flash", description="OpenRouter model id")
     openrouter_base_url: str = Field("https://openrouter.ai/api/v1", description="OpenRouter API base URL")
 
     # legal advice pipeline
     s3_legal_advice: str = Field("legaladvice", description="Bucket the advice JSON lands in")
+    s3_projects: str = Field("projects", description="Bucket holding everything that belongs to a project")
     legal_task_queue: str = Field("legal_advice_queue", description="Task queue for the legal review workflow")
     legal_max_concurrent_pdfs: int = Field(10, description="How many PDFs the workflow processes at once")
     legal_pages_per_batch: int = Field(30, description="Pages per LLM call")
     legal_max_pdfs: int = Field(20, description="Most PDFs accepted in one request")
+    max_upload_bytes: int = Field(25 * 1024 * 1024, description="Largest single PDF the service accepts")
+    max_request_bytes: int = Field(100 * 1024 * 1024, description="Largest total upload in one request")
     human_input_timeout_seconds: float = Field(3600, description="How long to wait for a human before continuing")
+
+    # emailed reports; with no SMTP_HOST the review simply does not send one
+    smtp_host: str = Field("", description="SMTP server the report is sent through")
+    smtp_port: int = Field(587, description="SMTP port; 587 for STARTTLS, 25 for a local relay")
+    smtp_username: str = Field("", description="SMTP username; empty for a relay that needs no login")
+    smtp_password: str = Field("", description="SMTP password")
+    smtp_from: str = Field("", description="Address the report is sent from")
+    smtp_use_tls: bool = Field(True, description="Upgrade the connection with STARTTLS")
+    smtp_timeout_seconds: float = Field(30, description="Timeout for the SMTP conversation")
+
+    # voice: the ASR and TTS models run in their own process (voice/)
+    voice_service_url: str = Field("http://127.0.0.1:8100", description="Base URL of the voice service")
+    voice_timeout_seconds: float = Field(120, description="Timeout for a transcription or a synthesis")
+    asr_provider: str = Field("voice_service", description="Which ASRInterface implementation the factory returns")
+    tts_provider: str = Field("voice_service", description="Which TTSInterface implementation the factory returns")
+    tts_voice: str = Field("Ryan", description="Which of the service's voices speaks the answers")
+    tts_language: str = Field("English", description="Language hint for both transcription and synthesis")
+    chat_context_characters: int = Field(12000, description="How much document text one chat answer may be given")
+    store_audio: bool = Field(True, description="Keep the recordings in the bucket beside the chat thread")
 
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).parent.parent / ".env"), env_file_encoding="utf-8", extra="ignore"

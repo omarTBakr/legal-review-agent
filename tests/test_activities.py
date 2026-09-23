@@ -83,9 +83,9 @@ def test_all_activities_are_registered():
     from activities import LEGAL_ACTIVITIES, PDF_ACTIVITIES
 
     assert len(PDF_ACTIVITIES) == 5
-    assert len(LEGAL_ACTIVITIES) == 6
+    assert len(LEGAL_ACTIVITIES) == 8
     # download_pdf is in both pipelines but registered once overall
-    assert len(ALL_ACTIVITIES) == 10
+    assert len(ALL_ACTIVITIES) == 12
     assert len(set(ALL_ACTIVITIES)) == len(ALL_ACTIVITIES)
 
 

@@ -10,6 +10,7 @@
     |     +-- UnsupportedFileTypeError
     |     +-- EmptyFileError
     |     +-- TooManyFilesError
+    |     +-- UploadTooLargeError
     |
     +-- StorageError
     |     +-- StorageConnectionError
@@ -29,9 +30,19 @@
     |     +-- LLMResponseError
     |
     +-- WorkflowError
-          +-- ActivityFailedError
-          +-- TemporalConnectionError
-          +-- WorkflowExecutionError
+    |     +-- ActivityFailedError
+    |     +-- TemporalConnectionError
+    |     +-- WorkflowExecutionError
+    |
+    +-- NotificationError
+    |     +-- EmailNotConfiguredError
+    |     +-- EmailSendError
+    |
+    +-- VoiceError
+          +-- VoiceConfigurationError
+          +-- VoiceUnavailableError
+          +-- TranscriptionError
+          +-- SynthesisError
 
 Catch `AIAgentError` for anything the project raised on purpose; catch a
 subtree (`StorageError`) when the handling is the same across a domain.
@@ -46,6 +57,7 @@ from exceptions.llm import (
     LLMResponseError,
     LLMTimeoutError,
 )
+from exceptions.notification import EmailNotConfiguredError, EmailSendError, NotificationError
 from exceptions.parsing import InvalidPdfError, ParsingError, PdfNotFoundError
 from exceptions.storage import (
     DownloadError,
@@ -55,7 +67,20 @@ from exceptions.storage import (
     StorageError,
     UploadError,
 )
-from exceptions.validation import EmptyFileError, TooManyFilesError, UnsupportedFileTypeError, ValidationError
+from exceptions.validation import (
+    EmptyFileError,
+    TooManyFilesError,
+    UnsupportedFileTypeError,
+    UploadTooLargeError,
+    ValidationError,
+)
+from exceptions.voice import (
+    SynthesisError,
+    TranscriptionError,
+    VoiceConfigurationError,
+    VoiceError,
+    VoiceUnavailableError,
+)
 from exceptions.workflow import ActivityFailedError, TemporalConnectionError, WorkflowError, WorkflowExecutionError
 
 __all__ = [
@@ -63,6 +88,8 @@ __all__ = [
     "ActivityFailedError",
     "ConfigurationError",
     "DownloadError",
+    "EmailNotConfiguredError",
+    "EmailSendError",
     "EmptyFileError",
     "InvalidPdfError",
     "InvalidSettingError",
@@ -73,16 +100,23 @@ __all__ = [
     "LLMTimeoutError",
     "LocalFileNotFoundError",
     "MissingSettingError",
+    "NotificationError",
     "ObjectNotFoundError",
     "ParsingError",
     "PdfNotFoundError",
     "StorageConnectionError",
+    "SynthesisError",
     "StorageError",
     "TooManyFilesError",
+    "TranscriptionError",
     "TemporalConnectionError",
     "UnsupportedFileTypeError",
     "UploadError",
+    "UploadTooLargeError",
     "ValidationError",
+    "VoiceConfigurationError",
+    "VoiceError",
+    "VoiceUnavailableError",
     "WorkflowError",
     "WorkflowExecutionError",
 ]

@@ -9,6 +9,7 @@ from interfaces import get_llm
 from prompts import get_prompt
 from schemas.human_followup import HumanFollowupInput, HumanFollowupOutput
 from schemas.legal_advice import LegalAdvice
+from utils.evidence import carry_verification
 
 
 @activity.defn
@@ -24,10 +25,7 @@ async def human_followup(payload: HumanFollowupInput) -> HumanFollowupOutput:
     draft = json.dumps(
         {
             "summary": payload.advice.summary,
-            "key_risks": [
-                {"description": risk.description, "severity": risk.severity.value, "location": risk.location}
-                for risk in payload.advice.key_risks
-            ],
+            "key_risks": [risk.to_prompt_dict() for risk in payload.advice.key_risks],
         },
         indent=2,
     )
@@ -47,6 +45,8 @@ async def human_followup(payload: HumanFollowupInput) -> HumanFollowupOutput:
     except Exception:
         activity.logger.exception("[task %s] failed to revise %s", payload.task_id, payload.pdf_key)
         raise
+
+    advice.key_risks = carry_verification(advice.key_risks, payload.advice.key_risks)
 
     advice.review_decision = ReviewDecision.HUMAN_APPROVED
     # the question has been answered; the model must not re-raise it

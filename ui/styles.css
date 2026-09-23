@@ -958,6 +958,35 @@ textarea {
   color: var(--warn);
 }
 
+.evidence {
+  margin: 6px 0 0;
+}
+
+.evidence blockquote {
+  margin: 0;
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--border-strong);
+  font-family: var(--serif);
+  font-style: italic;
+}
+
+.evidence figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.unverified {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .result-foot {
   display: flex;
   flex-wrap: wrap;
@@ -995,4 +1024,511 @@ textarea {
   .dropzone {
     transition: none;
   }
+}
+
+/* --- projects ------------------------------------------------------------ */
+
+.project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+  background: var(--surface);
+}
+
+.project-row:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-muted);
+}
+
+.project-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-main strong,
+.project-main .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.project-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.field label {
+  font-weight: 600;
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.field p {
+  margin: 0;
+}
+
+.project-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 12px 0 0;
+}
+
+.project-facts dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.project-facts dd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+
+.project-facts code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 560px) {
+  .project-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .project-meta {
+    align-items: flex-start;
+  }
+}
+
+/* --- chat ---------------------------------------------------------------- */
+
+.chat-panel {
+  margin-top: 16px;
+}
+
+.autoplay {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.chat-turns {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-turn {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.chat-question {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+.chat-answer {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.chat-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+}
+
+.chat-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.chat-input {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.mic[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mic.recording {
+  border-color: var(--danger);
+  color: var(--danger);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.chat-status {
+  min-height: 1.2em;
+  margin-top: 6px;
+}
+
+.spoken {
+  color: var(--muted);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mic.recording {
+    animation: none;
+  }
+}
+
+/* --- the microphone level ------------------------------------------------ */
+
+.mic {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wave {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+}
+
+.wave.live {
+  display: inline-flex;
+}
+
+.wave-bar {
+  width: 3px;
+  height: var(--height, 12%);
+  border-radius: 2px;
+  background: currentColor;
+  /* the height is set every frame; a transition here would fight it */
+  transition: none;
+}
+
+.chat-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.speed-control {
+  gap: 8px;
+}
+
+.speed {
+  width: 110px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.speed-value {
+  min-width: 2.6em;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 560px) {
+  .speed {
+    width: 84px;
+  }
+}
+
+.chat-unavailable {
+  margin-top: 16px;
+  border-style: dashed;
+}
+
+/* --- the conversation ---------------------------------------------------- */
+
+.chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-message {
+  display: flex;
+  flex-direction: column;
+  max-width: min(82%, 640px);
+  margin-bottom: 8px;
+}
+
+.chat-message .who {
+  margin: 0 4px 2px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chat-message .bubble {
+  padding: 8px 12px;
+  border-radius: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.from-you {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.from-you .bubble {
+  border-bottom-right-radius: 3px;
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.from-agent {
+  align-self: flex-start;
+}
+
+.from-agent .bubble {
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 3px;
+  background: var(--surface-muted);
+}
+
+/* the caret while the answer is still being written */
+.bubble.writing::after {
+  content: "▌";
+  margin-left: 1px;
+  color: var(--muted);
+  animation: blink 1s steps(2, start) infinite;
+}
+
+.bubble.writing:empty::after {
+  content: "▌ thinking";
+  font-size: 0.85rem;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble.writing::after {
+    animation: none;
+  }
+}
+
+.chat-message .chat-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 4px 0;
+}
+
+.button.small,
+.transport {
+  padding: 2px 8px;
+  font-size: 0.78rem;
+}
+
+.chat-empty {
+  margin: 12px 0;
+}
+
+@media (max-width: 560px) {
+  .chat-message {
+    max-width: 100%;
+  }
+}
+
+/* --- following the voice -------------------------------------------------- */
+
+.word {
+  border-radius: 3px;
+  /* only the colours move, so a highlight cannot reflow the paragraph */
+  transition: background-color 90ms linear;
+}
+
+.word.speaking {
+  background: #ffe86b;
+  color: #1c1e22;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .word {
+    transition: none;
+  }
+}
+
+/* The API key gate: shown over everything when the API answers 401. */
+.key-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.key-panel {
+  width: min(420px, 100%);
+  margin: 0;
+}
+
+/* Comparing two rounds of a contract. */
+.compare-verdict {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.compare-better {
+  color: var(--ok);
+}
+
+.compare-worse {
+  color: var(--danger);
+}
+
+.change-group {
+  margin-top: 20px;
+}
+
+.change-group h4 {
+  margin: 0 0 2px;
+}
+
+/* A stripe in the severity colour of the news, so the eye finds "new" first. */
+.change {
+  border-left: 3px solid transparent;
+  padding-left: 10px;
+}
+
+.change-new {
+  border-left-color: var(--danger);
+}
+
+.change-worse {
+  border-left-color: var(--warn);
+}
+
+.change-fixed {
+  border-left-color: var(--ok);
+}
+
+.change-better {
+  border-left-color: var(--ok);
+}
+
+/* A round sits under the review it supersedes. */
+.project-list .is-round {
+  margin-left: 18px;
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+}
+
+.compare-link {
+  display: inline-block;
+  margin: 2px 0 8px 12px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.compare-link:hover {
+  text-decoration: underline;
+}
+
+/* The project-wide risk register. */
+.register-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+
+.button.small {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+/* Its own row rather than .actions, which is space-between and would fling
+   three small buttons to opposite ends of the panel. */
+.register-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* The marked-up PDF button on a result card. */
+.card-actions {
+  margin-top: 16px;
 }

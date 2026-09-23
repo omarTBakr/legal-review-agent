@@ -15,3 +15,7 @@ class EmptyFileError(ValidationError):
 
 class TooManyFilesError(ValidationError):
     """More documents than the pipeline accepts in one request."""
+
+
+class UploadTooLargeError(ValidationError):
+    """A document, or a request, past the size the service accepts."""

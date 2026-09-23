@@ -7,7 +7,7 @@ from utils.config import get_setting
 from utils.http_errors import http_errors
 from utils.logger import get_logger
 from utils.responses import accepted_response, completed_response, status_response
-from utils.store_upload import store_upload, validate_upload
+from utils.store_upload import store_upload
 from utils.temporal_client import get_temporal_client
 from utils.workflow_ids import workflow_id_for
 from workflows.workflow_process_pdf import ProcessPdfWorkflow
@@ -31,10 +31,7 @@ async def process(response: Response, file: UploadFile = File(...), wait: bool =
     settings = get_setting()
 
     with http_errors(file.filename or "<no filename>"):
-        pdf = await file.read()
-        validate_upload(file.filename, pdf)
-
-        stored = await store_upload(pdf, file.filename, settings)
+        stored = await store_upload(file, settings)
 
         client = await get_temporal_client()
         handle = await client.start_workflow(

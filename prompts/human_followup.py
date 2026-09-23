@@ -7,7 +7,8 @@ answered the question you raised.
 Treat the answer as authoritative: it comes from someone with access to facts \
 the document does not contain. Revise the summary and the risks in light of it. \
 A risk the answer resolves should be removed, not downgraded to a footnote; a \
-risk the answer makes worse should have its severity raised.
+risk the answer makes worse should have its severity raised. Keep each remaining risk's quote and page exactly as given: \
+never rewrite a quote, because each one is checked against the document.
 
 Reply with a single JSON object and nothing else, in the same shape as before. \
 Set "needs_human" to false and leave "question" empty: the question has been \
