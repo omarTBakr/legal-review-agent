@@ -33,7 +33,12 @@ export async function showProject(projectId) {
         "div",
         { class: "section-head" },
         el("h2", {}, project.name),
-        el("a", { class: "button primary", href: `#/projects/${project.id}/new` }, "New review"),
+        el(
+          "span",
+          { class: "actions" },
+          reviews.length ? el("a", { class: "button", href: `#/projects/${project.id}/register` }, "Risk register") : null,
+          el("a", { class: "button primary", href: `#/projects/${project.id}/new` }, "New review"),
+        ),
       ),
       project.description ? el("p", {}, project.description) : null,
       el(

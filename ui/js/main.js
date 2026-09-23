@@ -16,6 +16,7 @@ import { showComparison } from "./views/compare.js";
 import { askForKey } from "./views/key.js";
 import { showProject } from "./views/project.js";
 import { showProjects } from "./views/projects.js";
+import { showRegister } from "./views/register.js";
 import { showReview, stopPolling } from "./views/review.js";
 
 const HEALTH_MS = 15000;
@@ -26,6 +27,7 @@ const VIEWS = {
   review: (route) => showReview(route.taskId, route.projectId),
   project: (route) => showProject(route.projectId),
   compare: (route) => showComparison(route.projectId, route.base, route.against),
+  register: (route) => showRegister(route.projectId),
   projects: () => showProjects(),
 };
 

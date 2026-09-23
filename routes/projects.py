@@ -2,6 +2,7 @@ import asyncio
 
 from fastapi import APIRouter, Body, HTTPException, Query, Response
 
+from enums.RiskSeverity import RiskSeverity
 from exceptions.storage import ObjectNotFoundError
 from utils.advice_store import read_advice
 from utils.compare import VERDICTS, compare_advice, pair_documents
@@ -10,6 +11,7 @@ from utils.http_errors import http_errors
 from utils.legal_responses import advice_body
 from utils.logger import get_logger
 from utils.projects import create_project, get_project, list_projects, list_reviews, read_review
+from utils.register import build_register
 from utils.workflow_ids import legal_workflow_id_for
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -67,6 +69,38 @@ async def detail(project_id: str) -> dict:
         reviews = await asyncio.to_thread(list_reviews, project_id, settings)
 
     return {**project.to_dict(), "reviews": [review.to_dict() for review in reviews], "review_count": len(reviews)}
+
+
+@router.get("/{project_id}/register")
+async def register(
+    project_id: str,
+    minimum: str = Query("", description="Drop anything below this severity: low, medium, high or critical"),
+    include_superseded: bool = Query(False, description="Include rounds that a later review replaced"),
+) -> dict:
+    """
+    Every risk in the project, worst first.
+
+    The advice is already in the bucket; this is a different way through it, so
+    there is no model call. Superseded rounds are left out by default — four
+    rounds of one contract would otherwise report the same cap four times.
+    """
+    settings = get_setting()
+
+    with http_errors(f"register for {project_id}"):
+        try:
+            project = await asyncio.to_thread(get_project, project_id, settings)
+        except ObjectNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=f"no such project: {project_id}") from exc
+
+        try:
+            floor = RiskSeverity.parse(minimum) if minimum else None
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        reviews = await asyncio.to_thread(list_reviews, project_id, settings)
+        built = await build_register(project_id, reviews, settings, include_superseded, floor)
+
+    return {**built.to_dict(), "project_name": project.name, "review_count": len(reviews)}
 
 
 @router.get("/{project_id}/compare")

@@ -1504,3 +1504,26 @@ textarea {
 .compare-link:hover {
   text-decoration: underline;
 }
+
+/* The project-wide risk register. */
+.register-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+
+.button.small {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+/* Its own row rather than .actions, which is space-between and would fling
+   three small buttons to opposite ends of the panel. */
+.register-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}

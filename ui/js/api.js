@@ -16,6 +16,7 @@ export const endpoints = {
   projects: "/projects",
   project: (projectId) => `/projects/${encodeURIComponent(projectId)}`,
   projectReview: (projectId, taskId) => `/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(taskId)}`,
+  register: (projectId) => `/projects/${encodeURIComponent(projectId)}/register`,
   compare: (projectId, base, against) =>
     `/projects/${encodeURIComponent(projectId)}/compare?base=${encodeURIComponent(base)}&against=${encodeURIComponent(against)}`,
   chat: (projectId, taskId) => `/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(taskId)}/chat`,
@@ -174,6 +175,11 @@ export function fetchProject(projectId) {
 
 export function fetchStoredReview(projectId, taskId) {
   return api(endpoints.projectReview(projectId, taskId));
+}
+
+/** Every risk in a project, worst first. */
+export function fetchRegister(projectId) {
+  return api(endpoints.register(projectId));
 }
 
 /** What changed between two rounds. No model call, so this is quick. */

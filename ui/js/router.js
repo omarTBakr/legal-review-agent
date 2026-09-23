@@ -6,6 +6,7 @@
  *   #/projects/<id>                        one project and its reviews
  *   #/projects/<id>/new                    start a review inside a project
  *   #/projects/<id>/reviews/<task_id>      follow that review
+ *   #/projects/<id>/register               every risk in the project
  *   #/projects/<id>/compare/<base>/<against>  what changed between two rounds
  *   #/review/<task_id>                     follow a review with no project
  */
@@ -14,6 +15,7 @@ const ID = "[A-Za-z0-9_-]+";
 
 const ROUTES = [
   { pattern: new RegExp(`^#/projects/(${ID})/compare/(${ID})/(${ID})$`), view: "compare" },
+  { pattern: new RegExp(`^#/projects/(${ID})/register$`), view: "register" },
   { pattern: new RegExp(`^#/projects/(${ID})/reviews/(${ID})$`), view: "review" },
   { pattern: new RegExp(`^#/projects/(${ID})/new$`), view: "new-review" },
   { pattern: new RegExp(`^#/projects/(${ID})$`), view: "project" },
