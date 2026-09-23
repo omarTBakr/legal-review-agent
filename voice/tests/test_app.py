@@ -170,7 +170,7 @@ def test_a_model_failure_is_a_500_not_a_crash(client, tts):
 
 def test_audio_that_is_not_audio_is_a_422(client, asr):
     """read_wav raises AudioError, which is the caller's fault, not ours."""
-    from audio import AudioError
+    from exceptions import AudioError
 
     asr.error = AudioError("could not read the audio")
 

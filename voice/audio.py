@@ -10,9 +10,17 @@ import io
 import numpy as np
 import soundfile as sf
 
+from exceptions import AudioError
 
-class AudioError(ValueError):
-    """The bytes we were handed are not audio we can use."""
+__all__ = [
+    "AudioError",
+    "FORMATS",
+    "duration_seconds",
+    "encode",
+    "read_wav",
+    "resample",
+    "write_wav",
+]
 
 
 def read_wav(data: bytes, target_rate: int = 16000) -> np.ndarray:

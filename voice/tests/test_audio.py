@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from audio import AudioError, duration_seconds, read_wav, resample, write_wav
+from audio import duration_seconds, read_wav, resample, write_wav
+from exceptions import AudioError
 
 
 def tone(seconds=0.25, rate=44100, channels=1, frequency=440.0) -> bytes:

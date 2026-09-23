@@ -22,6 +22,32 @@ The run **refuses to start** when any two of them are the same model. A model
 grading or overturning its own output agrees with itself, and the agreement is not
 evidence — it is a number that looks like one, which is worse than no number.
 
+## Running it on a local model
+
+`LLM_PROVIDER=ollama` points the reviewer at a model on this machine, and the
+per-call cost goes to zero — a sweep stops being a budget decision. Two things
+to know before reading any number that comes out of it:
+
+- **Set `OLLAMA_CONTEXT_TOKENS` to cover the batch.** Ollama does not use a
+  model's full context by default; it truncates to its own much smaller one,
+  silently. At `LEGAL_PAGES_PER_BATCH=30` a batch is ~21,000 tokens, so on the
+  default the model reads the opening pages and reports no risks in the rest of
+  a contract it never saw. Either raise the context or lower the batch size —
+  and on a consumer GPU, lower the batch size.
+- **Layers 2 and 3 still want a hosted model.** The rule that no two levels
+  share a model is about independence, not about where they run, and a *weaker*
+  judge grading a stronger reviewer produces a number that means the opposite of
+  what it says (weakness 12 below). Run layer 1 locally with `--no-judge` unless
+  you have a genuinely stronger local model to judge with.
+
+```bash
+LLM_PROVIDER=ollama LEGAL_PAGES_PER_BATCH=10 EVAL_REQUEST_CONCURRENCY=1 \
+  uv run python -m evaluation.run --limit 25 --no-extraction --no-judge
+```
+
+`EVAL_REQUEST_CONCURRENCY=1` because one GPU runs one generation at a time;
+asking for four in flight makes them queue and thrash rather than overlap.
+
 Nothing here is imported by the service. The suite calls the product's own
 parser, batching, prompts, `LegalAdvice.from_model` and `utils/evidence.py`, so a
 change to `prompts/legal_advice.py` moves the numbers. It is not a second copy of
