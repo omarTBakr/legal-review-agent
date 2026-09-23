@@ -46,7 +46,9 @@ class StubSpeaker:
         self.calls.append({"text": text, "voice": voice, "language": language})
         if self.error:
             raise self.error
-        return WAV, 16000, [{"word": "Twelve", "start": 0.0, "end": 0.4}, {"word": "months", "start": 0.4, "end": 0.9}]
+        words = [{"word": "Twelve", "start": 0.0, "end": 0.4}, {"word": "months", "start": 0.4, "end": 0.9}]
+
+        return WAV, 16000, words, "audio/ogg"
 
 
 @pytest.fixture
@@ -113,11 +115,10 @@ def test_an_empty_recording_is_refused(client, asr):
     assert asr.calls == []
 
 
-def test_text_is_spoken_as_a_wav(client, tts):
+def test_text_is_spoken_as_audio(client, tts):
     response = client.post("/speak", json={"text": "Twelve months of fees."})
 
     assert response.status_code == 200
-    assert response.headers["content-type"] == "audio/wav"
     assert response.headers["x-sample-rate"] == "16000"
     assert response.content == WAV
 
@@ -144,12 +145,18 @@ def test_the_json_format_carries_the_word_timings(client, tts):
     assert base64.b64decode(body["audio"]) == WAV
 
 
-def test_the_default_is_still_a_plain_wav(client, tts):
-    """curl and any other caller keep working without knowing about timings."""
+def test_the_audio_says_what_it_is(client, tts):
+    """The body is Opus by default now, so the media type has to travel with it."""
     response = client.post("/speak", json={"text": "Twelve months of fees."})
 
-    assert response.headers["content-type"] == "audio/wav"
+    assert response.headers["content-type"] == "audio/ogg"
     assert response.content == WAV
+
+
+def test_the_json_reply_names_the_media_type_too(client, tts):
+    body = client.post("/speak?format=json", json={"text": "Twelve months of fees."}).json()
+
+    assert body["mime"] == "audio/ogg"
 
 
 def test_a_model_failure_is_a_500_not_a_crash(client, tts):

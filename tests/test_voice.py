@@ -20,11 +20,11 @@ from main import app
 WAV = b"RIFF$\x00\x00\x00WAVEfmt "
 
 
-def spoken(audio: bytes = WAV, words=None) -> dict:
-    """What the voice service returns for a synthesis: audio, and its timings."""
+def spoken(audio: bytes = WAV, words=None, mime: str = "audio/ogg") -> dict:
+    """What the voice service returns for a synthesis: audio, timings, format."""
     import base64
 
-    return {"audio": base64.b64encode(audio).decode(), "rate": 24000, "words": words or []}
+    return {"audio": base64.b64encode(audio).decode(), "rate": 24000, "words": words or [], "mime": mime}
 
 
 def service(handler, settings) -> VoiceService:
@@ -96,17 +96,18 @@ async def test_the_words_come_back_with_their_timings(settings):
     words = [{"word": "Twelve", "start": 0.0, "end": 0.4}]
     tts = service(lambda request: httpx.Response(200, json=spoken(words=words)), settings)
 
-    audio, timed = await tts.speak_timed("Twelve months.")
+    audio, timed, media_type = await tts.speak_timed("Twelve months.")
 
     assert audio == WAV
     assert timed == words
+    assert media_type == "audio/ogg"
 
 
 async def test_an_engine_with_no_timings_still_speaks(settings):
     """Qwen3-TTS cannot say when it speaks each word; the audio is still fine."""
     tts = service(lambda request: httpx.Response(200, json=spoken()), settings)
 
-    audio, timed = await tts.speak_timed("Twelve months.")
+    audio, timed, _ = await tts.speak_timed("Twelve months.")
 
     assert audio == WAV and timed == []
 
@@ -277,7 +278,7 @@ def test_a_spoken_answer_is_kept_and_noted_on_its_turn(client, voice, s3, settin
     )
 
     [turn] = read_thread(project.id, "abc123", settings).turns
-    assert turn.answer_audio == f"{project.id}/chats/abc123/audio/0-answer.wav"
+    assert turn.answer_audio == f"{project.id}/chats/abc123/audio/0-answer.ogg"
     assert s3.objects[(settings.s3_projects, turn.answer_audio)] == voice.audio
 
 
@@ -323,11 +324,12 @@ def test_timings_that_were_never_kept_come_back_empty(client, voice, s3, setting
     assert client.get(f"/voice/timings/{project.id}/abc123/0").json() == {"words": []}
 
 
-def test_speak_returns_a_wav(client, voice):
+def test_speak_returns_the_audio_as_what_it_is(client, voice):
+    """Opus by default, so the media type has to travel with the bytes."""
     response = client.post("/voice/speak", json={"text": "Twelve months of fees."})
 
     assert response.status_code == 200
-    assert response.headers["content-type"] == "audio/wav"
+    assert response.headers["content-type"] == "audio/ogg"
     assert response.content == voice.audio
 
 

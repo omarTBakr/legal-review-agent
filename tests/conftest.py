@@ -183,7 +183,8 @@ class FakeVoice(ASRInterface, TTSInterface):
 
     def __init__(self):
         self.transcript = "What is the liability cap?"
-        self.audio = b"RIFF....WAVEfake"
+        self.audio = b"OggS....fake opus"
+        self.media_type = "audio/ogg"
         self.words = [{"word": "Twelve", "start": 0.0, "end": 0.4}, {"word": "months", "start": 0.4, "end": 0.9}]
         self.calls = []
         self.error = None
@@ -199,11 +200,11 @@ class FakeVoice(ASRInterface, TTSInterface):
 
         return audio
 
-    async def speak_timed(self, text: str, voice: str = "", language: str = "") -> tuple[bytes, list[dict]]:
+    async def speak_timed(self, text: str, voice: str = "", language: str = "") -> tuple[bytes, list[dict], str]:
         self.calls.append({"kind": "speak", "text": text, "voice": voice, "language": language})
         if self.error is not None:
             raise self.error
-        return self.audio, self.words
+        return self.audio, self.words, self.media_type
 
 
 @pytest.fixture

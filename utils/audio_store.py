@@ -29,12 +29,19 @@ QUESTION = "question"
 ANSWER = "answer"
 
 
-def audio_key(project_id: str, task_id: str, turn: int, kind: str) -> str:
+# the extension each media type is stored under, so a clip is served back as
+# what it is rather than as whatever the reader assumes
+EXTENSIONS = {"audio/ogg": "ogg", "audio/wav": "wav", "audio/mpeg": "mp3"}
+
+
+def audio_key(project_id: str, task_id: str, turn: int, kind: str, media_type: str = "audio/wav") -> str:
     """Where one clip lives. `turn` is its index in the thread, from zero."""
     if kind not in (QUESTION, ANSWER):
         raise ValueError(f"audio is either a {QUESTION} or an {ANSWER}, not {kind!r}")
 
-    return f"{PROJECTS_ROOT}{check_project_id(project_id)}/{CHATS_FOLDER}{task_id}/{AUDIO_FOLDER}{turn}-{kind}.wav"
+    extension = EXTENSIONS.get(media_type, "wav")
+
+    return f"{PROJECTS_ROOT}{check_project_id(project_id)}/{CHATS_FOLDER}{task_id}/{AUDIO_FOLDER}{turn}-{kind}.{extension}"
 
 
 def timings_key(project_id: str, task_id: str, turn: int) -> str:
@@ -73,7 +80,9 @@ def read_timings(project_id: str, task_id: str, turn: int, settings: Settings) -
     return [dict(word) for word in stored] if isinstance(stored, list) else []
 
 
-def store_audio(project_id: str, task_id: str, turn: int, kind: str, wav: bytes, settings: Settings) -> str:
+def store_audio(
+    project_id: str, task_id: str, turn: int, kind: str, wav: bytes, settings: Settings, media_type: str = "audio/wav"
+) -> str:
     """
     Keeps one clip and returns its key, or "" when audio is not being kept.
 
@@ -84,7 +93,7 @@ def store_audio(project_id: str, task_id: str, turn: int, kind: str, wav: bytes,
     if not settings.store_audio or not wav:
         return ""
 
-    key = audio_key(project_id, task_id, turn, kind)
+    key = audio_key(project_id, task_id, turn, kind, media_type)
 
     try:
         upload_s3_file(wav, settings.s3_projects, key)
@@ -97,13 +106,29 @@ def store_audio(project_id: str, task_id: str, turn: int, kind: str, wav: bytes,
     return key
 
 
-def read_audio(project_id: str, task_id: str, turn: int, kind: str, settings: Settings) -> bytes:
-    """One stored clip. Raises ObjectNotFoundError when it was never kept."""
-    return download_s3_bytes(settings.s3_projects, audio_key(project_id, task_id, turn, kind))
+def read_audio(project_id: str, task_id: str, turn: int, kind: str, settings: Settings) -> tuple[bytes, str]:
+    """
+    One stored clip and its media type, whichever format it was kept in.
+
+    Clips stored before the service spoke Opus are WAV, and both play; the
+    extension on the key is what says which, so the answer is served back as
+    what it actually is.
+    """
+    for media_type, extension in EXTENSIONS.items():
+        key = audio_key(project_id, task_id, turn, kind, media_type)
+        if not key.endswith(f".{extension}"):
+            continue
+
+        try:
+            return download_s3_bytes(settings.s3_projects, key), media_type
+        except ObjectNotFoundError:
+            continue
+
+    raise ObjectNotFoundError(f"no {kind} audio stored for turn {turn}")
 
 
 def has_audio(project_id: str, task_id: str, turn: int, kind: str, settings: Settings) -> bool:
     try:
-        return bool(read_audio(project_id, task_id, turn, kind, settings))
+        return bool(read_audio(project_id, task_id, turn, kind, settings)[0])
     except (ObjectNotFoundError, StorageError):
         return False

@@ -22,6 +22,8 @@ class VoiceSettings:
     # where the voice runs, when it should differ from VOICE_DEVICE. Kokoro
     # wants about 40 MB of VRAM, so the GPU is nearly free for it.
     tts_device: str = ""
+    # "opus" (a tenth the size, what the browser is served) or "wav"
+    audio_format: str = "opus"
     device: str = "auto"
     dtype: str = "bfloat16"
     # "4bit", "8bit" or "none". Quantising a 0.6B model saves VRAM rather than
@@ -52,6 +54,7 @@ class VoiceSettings:
             kokoro_config=os.getenv("KOKORO_CONFIG", cls.kokoro_config),
             kokoro_weights=os.getenv("KOKORO_WEIGHTS", cls.kokoro_weights),
             tts_device=os.getenv("TTS_DEVICE", cls.tts_device),
+            audio_format=os.getenv("VOICE_AUDIO_FORMAT", cls.audio_format).strip().lower(),
             device=os.getenv("VOICE_DEVICE", cls.device),
             dtype=os.getenv("VOICE_DTYPE", cls.dtype),
             quantization=os.getenv("VOICE_QUANTIZATION", cls.quantization).strip().lower(),

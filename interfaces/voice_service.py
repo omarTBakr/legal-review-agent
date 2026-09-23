@@ -66,11 +66,11 @@ class VoiceService(ASRInterface, TTSInterface):
         return text
 
     async def speak(self, text: str, voice: str = "", language: str = "") -> bytes:
-        audio, _ = await self.speak_timed(text, voice, language)
+        audio, _, _ = await self.speak_timed(text, voice, language)
 
         return audio
 
-    async def speak_timed(self, text: str, voice: str = "", language: str = "") -> tuple[bytes, list[dict]]:
+    async def speak_timed(self, text: str, voice: str = "", language: str = "") -> tuple[bytes, list[dict], str]:
         """
         The audio, and when each word in it is spoken.
 
@@ -98,13 +98,14 @@ class VoiceService(ASRInterface, TTSInterface):
             payload = body.json()
             audio = base64.b64decode(payload["audio"])
             words = [dict(word) for word in payload.get("words") or []]
+            media_type = str(payload.get("mime") or "audio/wav")
         except (ValueError, KeyError, TypeError, binascii.Error) as exc:
             raise SynthesisError(f"unexpected reply from the voice service: {body.text[:200]}") from exc
 
         if not audio:
             raise SynthesisError("the voice service returned no audio")
 
-        return audio, words
+        return audio, words, media_type
 
     async def _post(self, path: str, failure: type[Exception], **kwargs) -> httpx.Response:
         """One request, with the failures every call shares translated once."""

@@ -12,7 +12,7 @@ voice that can be compared against is worth more than one that cannot.
 
 import numpy as np
 
-from audio import write_wav
+from audio import encode
 from config import VoiceSettings
 from logger import get_logger
 from quantization import load_with
@@ -63,17 +63,18 @@ class QwenSpeaker:
 
         logger.info("TTS ready on %s", self.device)
 
-    def speak_with_timings(self, text: str, voice: str = "", language: str = "") -> tuple[bytes, int, list[dict]]:
+    def speak_with_timings(self, text: str, voice: str = "", language: str = "") -> tuple[bytes, int, list[dict], str]:
         """
-        The audio, and no word timings.
+        The audio, its media type, and no word timings.
 
         Qwen3-TTS does not report when each word is spoken. Estimating from
         word lengths was the alternative, and a highlight that drifts away from
         the voice is worse than no highlight at all.
         """
-        wav, rate = self.speak(text, voice, language)
+        audio, rate = self.speak(text, voice, language)
+        media_type = "audio/ogg" if self._settings.audio_format == "opus" else "audio/wav"
 
-        return wav, rate, []
+        return audio, rate, [], media_type
 
     def speak(self, text: str, voice: str = "", language: str = "") -> tuple[bytes, int]:
         """
@@ -94,4 +95,6 @@ class QwenSpeaker:
 
         logger.info("spoke %d characters as %.2fs of audio", len(text), samples.size / rate if rate else 0)
 
-        return write_wav(samples, rate), rate
+        audio, _ = encode(samples, rate, self._settings.audio_format)
+
+        return audio, rate

@@ -54,6 +54,7 @@ docker compose -f voice/Docker/docker-compose.yml up -d --build
 | `TTS_ENGINE` | `kokoro` | `kokoro` (one English voice, very fast) or `qwen` (ten languages) |
 | `TTS_MODEL_ID` | `oddadmix/Kokoro-7M-Distill` | The synthesis model |
 | `TTS_DEVICE` | *(follows `VOICE_DEVICE`)* | Where the voice runs; it needs ~40 MB of VRAM |
+| `VOICE_AUDIO_FORMAT` | `opus` | `opus` (a tenth the size) or `wav`; the recogniser always takes WAV |
 | `VOICE_DEVICE` | `auto` | `cuda`, `cpu`, or `auto` |
 | `VOICE_DTYPE` | `bfloat16` | Use `float16` on a GPU older than Ampere |
 | `VOICE_QUANTIZATION` | `4bit` | `4bit`, `8bit` or `none` |

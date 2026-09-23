@@ -19,7 +19,7 @@ import numpy as np
 import torch
 
 import kokoro_patch
-from audio import write_wav
+from audio import encode
 from config import VoiceSettings
 from logger import get_logger
 
@@ -135,11 +135,11 @@ class KokoroSpeaker:
         to the service; this model has one of each, and says so rather than
         pretending otherwise.
         """
-        wav, rate, _ = self.speak_with_timings(text, voice, language)
+        audio, rate, _, _ = self.speak_with_timings(text, voice, language)
 
-        return wav, rate
+        return audio, rate
 
-    def speak_with_timings(self, text: str, voice: str = "", language: str = "") -> tuple[bytes, int, list[dict]]:
+    def speak_with_timings(self, text: str, voice: str = "", language: str = "") -> tuple[bytes, int, list[dict], str]:
         """
         The same audio, plus when each word is said.
 
@@ -170,6 +170,15 @@ class KokoroSpeaker:
 
         samples = np.concatenate(chunks).astype(np.float32)
 
-        logger.info("spoke %d characters as %.1fs of audio, %d timed words", len(text), elapsed, len(words))
+        audio, media_type = encode(samples, SAMPLE_RATE, self._settings.audio_format)
 
-        return write_wav(samples, SAMPLE_RATE), SAMPLE_RATE, words
+        logger.info(
+            "spoke %d characters as %.1fs of audio, %d timed words, %d KB of %s",
+            len(text),
+            elapsed,
+            len(words),
+            len(audio) // 1024,
+            self._settings.audio_format,
+        )
+
+        return audio, SAMPLE_RATE, words, media_type

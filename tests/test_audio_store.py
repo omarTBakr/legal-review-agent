@@ -37,7 +37,24 @@ def test_a_clip_is_stored_and_read_back(s3, settings):
     key = store_audio(project.id, "abc123", 0, QUESTION, WAV, settings)
 
     assert key == audio_key(project.id, "abc123", 0, QUESTION)
-    assert read_audio(project.id, "abc123", 0, QUESTION, settings) == WAV
+    assert read_audio(project.id, "abc123", 0, QUESTION, settings) == (WAV, "audio/wav")
+
+
+def test_a_clip_is_stored_under_its_own_format(s3, settings):
+    """An answer spoken as Opus must not be served back as a WAV."""
+    key = store_audio(create_project("Acme", settings).id, "abc123", 0, ANSWER, b"OggSfake", settings, "audio/ogg")
+
+    assert key.endswith("0-answer.ogg")
+
+
+def test_both_formats_read_back(s3, settings):
+    """Answers spoken before the service used Opus are WAV, and still play."""
+    project = create_project("Acme", settings)
+    store_audio(project.id, "abc123", 0, ANSWER, b"OggSopus", settings, "audio/ogg")
+    store_audio(project.id, "abc123", 1, ANSWER, WAV, settings, "audio/wav")
+
+    assert read_audio(project.id, "abc123", 0, ANSWER, settings) == (b"OggSopus", "audio/ogg")
+    assert read_audio(project.id, "abc123", 1, ANSWER, settings) == (WAV, "audio/wav")
 
 
 def test_nothing_is_stored_when_storing_audio_is_off(s3, settings, monkeypatch):

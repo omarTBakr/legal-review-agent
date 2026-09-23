@@ -54,8 +54,34 @@ def resample(samples: np.ndarray, rate: int, target_rate: int) -> np.ndarray:
     return np.interp(target_points, source_points, samples).astype(np.float32)
 
 
+# what each format is called on the wire, and what to write it with
+FORMATS = {
+    "wav": ("audio/wav", "WAV", "PCM_16"),
+    "opus": ("audio/ogg", "OGG", "OPUS"),
+}
+
+
+def encode(samples: np.ndarray, rate: int, fmt: str = "wav") -> tuple[bytes, str]:
+    """
+    Encodes samples in `fmt`, returning the bytes and their media type.
+
+    Opus is roughly a tenth the size of the same speech as WAV — 23 KB against
+    234 KB for five seconds — which is worth having when every answer is
+    stored and fetched again to replay it.
+    WAV stays the default for anything that has to be read back by a model:
+    the recogniser wants samples, not a codec's idea of them.
+    """
+    media_type, container, subtype = FORMATS.get(fmt, FORMATS["wav"])
+
+    return _write(samples, rate, container, subtype), media_type
+
+
 def write_wav(samples: np.ndarray, rate: int) -> bytes:
     """Encodes samples as a 16-bit WAV, which every browser can play."""
+    return _write(samples, rate, "WAV", "PCM_16")
+
+
+def _write(samples: np.ndarray, rate: int, container: str, subtype: str) -> bytes:
     samples = np.asarray(samples, dtype=np.float32).reshape(-1)
 
     if samples.size == 0:
@@ -63,11 +89,10 @@ def write_wav(samples: np.ndarray, rate: int) -> bytes:
 
     peak = float(np.max(np.abs(samples)))
     if peak > 1.0:
-        # a model can overshoot; clipping in the file sounds worse than scaling
         samples = samples / peak
 
     buffer = io.BytesIO()
-    sf.write(buffer, samples, rate, format="WAV", subtype="PCM_16")
+    sf.write(buffer, samples, rate, format=container, subtype=subtype)
 
     return buffer.getvalue()
 

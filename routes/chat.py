@@ -191,11 +191,11 @@ async def audio(project_id: str, task_id: str, turn: int, kind: str) -> Response
 
     with http_errors(f"task {task_id}"):
         try:
-            wav = await asyncio.to_thread(read_audio, project_id, task_id, turn, kind, settings)
+            audio, media_type = await asyncio.to_thread(read_audio, project_id, task_id, turn, kind, settings)
         except ObjectNotFoundError as exc:
             raise HTTPException(status_code=404, detail=f"no {kind} audio stored for turn {turn}") from exc
 
-    return Response(content=wav, media_type="audio/wav")
+    return Response(content=audio, media_type=media_type)
 
 
 def _checked(question: str) -> str:

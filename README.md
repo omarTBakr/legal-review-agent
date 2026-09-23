@@ -342,8 +342,13 @@ Qwen packages each pin `transformers` to an exact patch, so one of the pins has
 to win; `voice/pyproject.toml` says which and why.
 
 **The recordings** are kept beside the thread, at
-`<project_id>/chats/<task_id>/audio/<turn>-question.wav` and `-answer.wav` in
-the projects bucket. S3 rather than a database or a local file: they are blobs, the
+`<project_id>/chats/<task_id>/audio/<turn>-question.wav` for what was asked and
+`<turn>-answer.ogg` for what was said back, in the projects bucket. Answers are
+Opus — a tenth the size of the same speech as WAV, 21 KB against 210 KB for a
+sentence — which matters because every answer is stored and fetched again to
+replay it. Questions stay WAV: the recogniser wants samples, not a codec's idea
+of them. Clips stored before this are WAV and still play; the extension on the
+key says which. S3 rather than a database or a local file: they are blobs, the
 bucket is already where everything durable here lives, a local file dies with
 the container, and a database row would only hold a pointer to the bucket
 anyway. Playing an answer again reads the stored clip instead of synthesising

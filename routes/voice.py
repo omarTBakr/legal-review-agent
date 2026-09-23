@@ -90,15 +90,17 @@ async def speak(
         if len(text) > MAX_SPOKEN_CHARACTERS:
             raise SynthesisError(f"at most {MAX_SPOKEN_CHARACTERS} characters can be read aloud at once")
 
-        audio, words = await get_tts().speak_timed(text, voice or settings.tts_voice, language or settings.tts_language)
+        audio, words, media_type = await get_tts().speak_timed(
+            text, voice or settings.tts_voice, language or settings.tts_language
+        )
 
         if project_id and task_id and turn >= 0:
-            await asyncio.to_thread(_remember_answer, project_id, task_id, turn, audio, words, settings)
+            await asyncio.to_thread(_remember_answer, project_id, task_id, turn, audio, words, media_type, settings)
 
     if "application/json" in request.headers.get("accept", ""):
-        return JSONResponse({"audio": base64.b64encode(audio).decode(), "words": words})
+        return JSONResponse({"audio": base64.b64encode(audio).decode(), "words": words, "mime": media_type})
 
-    return Response(content=audio, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+    return Response(content=audio, media_type=media_type, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/timings/{project_id}/{task_id}/{turn}")
@@ -110,9 +112,9 @@ async def timings(project_id: str, task_id: str, turn: int) -> dict:
         return {"words": await asyncio.to_thread(read_timings, project_id, task_id, turn, settings)}
 
 
-def _remember_answer(project_id: str, task_id: str, turn: int, audio: bytes, words: list, settings) -> None:
+def _remember_answer(project_id: str, task_id: str, turn: int, audio: bytes, words: list, media_type: str, settings) -> None:
     """Stores the spoken answer and notes it on its turn. Runs in a thread."""
-    key = store_audio(project_id, task_id, turn, ANSWER, audio, settings)
+    key = store_audio(project_id, task_id, turn, ANSWER, audio, settings, media_type)
     if not key:
         return
 

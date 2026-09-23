@@ -13,12 +13,14 @@ class TTSInterface(ABC):
         default.
         """
 
-    async def speak_timed(self, text: str, voice: str = "", language: str = "") -> tuple[bytes, list[dict]]:
+    async def speak_timed(self, text: str, voice: str = "", language: str = "") -> tuple[bytes, list[dict], str]:
         """
-        The same audio, plus `{word, start, end}` for each word spoken.
+        The same audio, its media type, and `{word, start, end}` per word.
 
-        The page uses these to follow the voice. An implementation whose model
-        cannot say when it speaks each word returns an empty list, and the page
-        simply does not highlight — better than a highlight that drifts.
+        The page uses the timings to follow the voice. An implementation whose
+        model cannot say when it speaks each word returns an empty list, and
+        the page simply does not highlight — better than one that drifts. The
+        media type travels with the bytes because the service decides the
+        format, and a stored clip has to be served back as what it is.
         """
-        return await self.speak(text, voice, language), []
+        return await self.speak(text, voice, language), [], "audio/wav"

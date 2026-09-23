@@ -81,6 +81,7 @@ async def health() -> dict:
         "asr": {"model": settings.asr_model_id, "loaded": transcriber.loaded, "device": transcriber.device},
         "tts": {
             "engine": settings.tts_engine,
+            "format": settings.audio_format,
             "model": settings.tts_model_id,
             "voice": settings.voice,
             "loaded": speaker.loaded,
@@ -131,15 +132,15 @@ async def speak(
 
     try:
         async with tts_lock:
-            wav, rate, words = await asyncio.to_thread(speaker.speak_with_timings, text, voice, language)
+            audio, rate, words, media_type = await asyncio.to_thread(speaker.speak_with_timings, text, voice, language)
     except Exception as exc:
         logger.exception("synthesis failed")
         raise HTTPException(status_code=500, detail=f"synthesis failed: {exc}") from exc
 
     if format == "json":
-        return JSONResponse({"audio": base64.b64encode(wav).decode(), "rate": rate, "words": words})
+        return JSONResponse({"audio": base64.b64encode(audio).decode(), "rate": rate, "words": words, "mime": media_type})
 
-    return Response(content=wav, media_type="audio/wav", headers={"X-Sample-Rate": str(rate), "Cache-Control": "no-store"})
+    return Response(content=audio, media_type=media_type, headers={"X-Sample-Rate": str(rate), "Cache-Control": "no-store"})
 
 
 def main():
