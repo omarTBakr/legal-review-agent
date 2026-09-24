@@ -24,6 +24,12 @@ worker, and a browser UI served by the API drives the legal review.
 ## Contents
 
 - [Screenshots](#screenshots)
+  - [A finished review](#a-finished-review)
+  - [The risk register](#the-risk-register)
+  - [What changed between two rounds](#what-changed-between-two-rounds)
+  - [Asking about the review, by voice](#asking-about-the-review-by-voice)
+  - [The contract, marked up](#the-contract-marked-up)
+  - [Temporal](#temporal)
 - [The complete workflow](#the-complete-workflow)
   - [What you can do with a finished review](#what-you-can-do-with-a-finished-review)
   - [The same thing as a script](#the-same-thing-as-a-script)
@@ -82,11 +88,55 @@ worker, and a browser UI served by the API drives the legal review.
 
 ## Screenshots
 
-The browser UI with a finished review: the totals and risks by severity, then
-one card per document with its review decision, summary, key risks and where
-the advice was stored.
+One real use case, end to end: upload a contract, watch the review run, read
+the risks, then ask about them. Nothing here is staged — it is a recording of an
+actual review, which took about twenty seconds on a local model running on a
+laptop GPU.
 
-![The Legal Review Agent browser UI showing a completed review](images/ui.png)
+![Uploading an NDA, the review running, the eight risks it found, and a question answered with clause and page citations](images/walkthrough.gif)
+
+### A finished review
+
+The totals and risks by severity, then one card per document: its review
+decision, summary, and every risk with the clause it rests on, the page, and the
+passage quoted word for word. `Download marked-up PDF` hands back the contract
+itself.
+
+![A completed review showing risks with their quotes and pages](images/review.jpg)
+
+### The risk register
+
+Every risk across the whole project, worst first, each linking back to the
+review it came from. 43 risks over 5 documents here, filtered to a severity
+floor without a round trip.
+
+![The project risk register, 43 risks across 5 documents, filtered by severity](images/register.jpg)
+
+### What changed between two rounds
+
+Round two against round one: what was fixed, what is new, and what got worse,
+with the previous wording kept beside the new. No model call — it is quote
+matching, so it costs nothing and says the same thing every time.
+
+![A comparison of two rounds of an NDA, showing new and worsened risks](images/compare.jpg)
+
+### Asking about the review, by voice
+
+The chat panel reads the review and the documents back. `Read answers` speaks
+every answer in the thread, highlighting each word as it is said.
+
+![The chat panel answering a question about the NDA, with the Read answers control](images/chat.jpg)
+
+### The contract, marked up
+
+The original PDF with each verified quote highlighted in its severity's colour
+and the finding attached as a note. Only verified quotes are highlighted;
+anything the evidence check could not place goes on an appendix page rather than
+being dropped.
+
+![A page of the reviewed contract with the liability and IP clauses highlighted](images/annotated.png)
+
+### Temporal
 
 Finished reviews in the Temporal web UI, one `legal-review-<task_id>` workflow
 per review:
