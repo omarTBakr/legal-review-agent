@@ -22,9 +22,9 @@ from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Re
 from fastapi.responses import JSONResponse
 
 from asr import Transcriber
-from audio import AudioError
 from auth import require_api_key, warn_if_open
 from config import get_settings
+from exceptions import AudioError
 from logger import get_logger, setup_logging
 from tts import build_speaker
 

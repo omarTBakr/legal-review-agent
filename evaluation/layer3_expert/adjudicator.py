@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from evaluation.common.prompts import ADJUDICATION_PROMPT
+from evaluation.common.retry import with_backoff
 from interfaces.llm_interface import LLMInterface
 from utils.logger import get_logger
 
@@ -148,23 +149,26 @@ async def adjudicate(llm: LLMInterface, item: dict) -> Adjudication:
     )
 
     try:
-        raw = await llm.complete(
-            ADJUDICATION_PROMPT,
-            document=adjudication.document,
-            category=adjudication.category,
-            escalation_reasons=", ".join(adjudication.escalation_reasons) or "(unrecorded)",
-            ground_truth=adjudication.ground_truth,
-            description=item.get("description", ""),
-            severity=item.get("severity", ""),
-            quote=adjudication.quote,
-            quote_verified=item.get("quote_verified"),
-            correctness=item.get("correctness"),
-            completeness=item.get("completeness"),
-            precision=item.get("precision"),
-            explanation=item.get("explanation"),
-            total_score=item.get("total_score"),
-            judge_pass=item.get("pass"),
-            reason=item.get("reason", ""),
+        raw = await with_backoff(
+            lambda: llm.complete(
+                ADJUDICATION_PROMPT,
+                document=adjudication.document,
+                category=adjudication.category,
+                escalation_reasons=", ".join(adjudication.escalation_reasons) or "(unrecorded)",
+                ground_truth=adjudication.ground_truth,
+                description=item.get("description", ""),
+                severity=item.get("severity", ""),
+                quote=adjudication.quote,
+                quote_verified=item.get("quote_verified"),
+                correctness=item.get("correctness"),
+                completeness=item.get("completeness"),
+                precision=item.get("precision"),
+                explanation=item.get("explanation"),
+                total_score=item.get("total_score"),
+                judge_pass=item.get("pass"),
+                reason=item.get("reason", ""),
+            ),
+            what=f"the expert on {adjudication.document}/{adjudication.category}",
         )
         adjudication.raw_reply = raw
         parsed = LLMInterface.parse_json_object(raw, prompt_name="adjudication")

@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from enums.LLMProvider import LLMProvider
+from interfaces.ollama_llm import OllamaLLM
 from interfaces.openrouter_llm import OpenRouterLLM
 from utils.config import Settings
 from utils.logger import get_logger
@@ -74,12 +76,19 @@ class TokenMeter:
             except ValueError:
                 return
 
-            usage = body.get("usage")
             model = body.get("model")
-            if not isinstance(usage, dict) or not model:
+            if not model:
                 return
 
-            self.record(model, int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0))
+            usage = body.get("usage")
+            if isinstance(usage, dict):
+                self.record(model, int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0))
+                return
+
+            # Ollama reports the same two numbers under its own names, and only
+            # on the final object of a reply
+            if body.get("done"):
+                self.record(model, int(body.get("prompt_eval_count") or 0), int(body.get("eval_count") or 0))
 
         return record_usage
 
@@ -92,22 +101,53 @@ class TokenMeter:
             event_hooks={"response": [self._hook()]},
         )
 
-    def llm(self, settings: Settings, model: str = "", temperature: float | None = None, max_tokens: int = 0) -> OpenRouterLLM:
+    def ollama_client(self, settings: Settings) -> httpx.AsyncClient:
+        """A local Ollama client that reports to this meter."""
+        return httpx.AsyncClient(
+            base_url=settings.ollama_base_url,
+            timeout=httpx.Timeout(settings.ollama_timeout_seconds, connect=10.0),
+            event_hooks={"response": [self._hook()]},
+        )
+
+    def llm(
+        self,
+        settings: Settings,
+        model: str = "",
+        temperature: float | None = None,
+        max_tokens: int = 0,
+        provider: str = "",
+    ):
         """
-        A metered LLM, optionally pointed at a different model than the service uses.
+        A metered LLM, optionally pointed at a different model — and a different
+        provider — than the service uses.
 
         The overrides go through Settings.model_copy rather than the environment,
         so asking for the judge cannot change which model the reviewer gets.
+
+        `provider` is per level, not global. The reviewer is the system under
+        test and belongs wherever the product runs; the judge and the expert are
+        measuring instruments and can live somewhere else entirely — which is
+        how a hosted reviewer gets graded by a model on this machine for
+        nothing. Empty means "whatever LLM_PROVIDER says".
+
+        The meter counts tokens either way. Ollama reports the same two numbers
+        under its own names, and they price at nothing, which is what they cost.
         """
-        overrides = {}
+        chosen = LLMProvider.parse(provider or settings.llm_provider)
+        local = chosen is LLMProvider.OLLAMA
+
+        overrides = {"llm_provider": chosen.value}
         if model:
-            overrides["openrouter_model"] = model
+            overrides["ollama_model" if local else "openrouter_model"] = model
         if temperature is not None:
             overrides["llm_temperature"] = temperature
         if max_tokens:
             overrides["llm_max_tokens"] = max_tokens
 
-        scoped = settings.model_copy(update=overrides) if overrides else settings
+        scoped = settings.model_copy(update=overrides)
+
+        if local:
+            return OllamaLLM(scoped, client=self.ollama_client(scoped))
 
         return OpenRouterLLM(scoped, client=self.client(scoped))
 

@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from evaluation.common.meter import TokenMeter
+from evaluation.common.models import reviewer_model
 from evaluation.common.pipeline import result_from_dict, review_pdf
 from evaluation.config import RESULTS_DIR
 from evaluation.fixtures.scorer import load_expected, score_document, summarize
@@ -87,7 +88,7 @@ async def main_async(arguments) -> dict:
 
     report = {
         "suite": "fixtures",
-        "reviewer_model": settings.openrouter_model,
+        "reviewer_model": reviewer_model(settings),
         "summary": summarize(scores),
         "documents": [score.to_dict() for score in scores],
         "usage": {**meter.report(), "summary": meter.summary_line()},

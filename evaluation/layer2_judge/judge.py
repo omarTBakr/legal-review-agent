@@ -19,6 +19,7 @@ import asyncio
 from dataclasses import dataclass
 
 from evaluation.common.prompts import JUDGE_PROMPT
+from evaluation.common.retry import with_backoff
 from interfaces.llm_interface import LLMInterface
 from schemas.key_risk import KeyRisk
 from utils.logger import get_logger
@@ -147,16 +148,19 @@ async def judge_finding(
     )
 
     try:
-        raw = await llm.complete(
-            JUDGE_PROMPT,
-            document=document,
-            category=category,
-            ground_truth=ground_truth,
-            description=risk.description,
-            severity=risk.severity.value,
-            location=risk.location,
-            quote=risk.quote,
-            quote_verified=risk.quote_verified,
+        raw = await with_backoff(
+            lambda: llm.complete(
+                JUDGE_PROMPT,
+                document=document,
+                category=category,
+                ground_truth=ground_truth,
+                description=risk.description,
+                severity=risk.severity.value,
+                location=risk.location,
+                quote=risk.quote,
+                quote_verified=risk.quote_verified,
+            ),
+            what=f"the judge on {document}/{category}",
         )
         verdict.raw_reply = raw
         parsed = LLMInterface.parse_json_object(raw, prompt_name="judge")

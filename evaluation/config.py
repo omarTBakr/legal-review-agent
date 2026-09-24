@@ -30,7 +30,12 @@ class EvalSettings(BaseSettings):
     with itself, and the agreement is not evidence.
     """
 
-    judge_model: str = Field("anthropic/claude-sonnet-5", description="OpenRouter model that scores the rubric")
+    judge_model: str = Field("anthropic/claude-sonnet-5", description="Model that scores the rubric")
+    # each level picks its own provider. The reviewer is the system under test
+    # and belongs wherever the product runs; the judge and the expert are
+    # measuring instruments and can live anywhere — a hosted reviewer graded by
+    # a model on this machine costs nothing to grade. Empty follows LLM_PROVIDER.
+    judge_provider: str = Field("", description="openrouter or ollama; empty follows LLM_PROVIDER")
     judge_temperature: float = Field(0.0, description="Judge sampling temperature; a rubric wants determinism")
     # the rubric's reply is under 100 tokens, but a reasoning model spends its
     # budget thinking before it writes any of them — at 1000 every verdict came
@@ -41,7 +46,8 @@ class EvalSettings(BaseSettings):
     # layer 3: the expert. Only the escalation queue reaches it, so the biggest
     # model on the list costs least here — a few dozen calls against the judge's
     # few hundred and the reviewer's thousands.
-    adjudicator_model: str = Field("anthropic/claude-opus-5", description="OpenRouter model that re-decides escalations")
+    adjudicator_model: str = Field("anthropic/claude-opus-5", description="Model that re-decides escalations")
+    adjudicator_provider: str = Field("", description="openrouter or ollama; empty follows LLM_PROVIDER")
     adjudicator_temperature: float = Field(0.0, description="Adjudicator sampling temperature")
     adjudicator_max_tokens: int = Field(6000, description="Token ceiling for an adjudication; it writes more than the judge")
     adjudicate_limit: int = Field(0, description="Most escalations to adjudicate, worst score first; 0 means all of them")

@@ -234,7 +234,15 @@ export class Player {
     for (const listener of this.listeners) listener(this);
   }
 
-  /** Plays `blob`, replacing whatever was playing. Resolves when it ends. */
+  /**
+   * Plays `blob`, replacing whatever was playing.
+   *
+   * Resolves with `{reason}`: "ended" when the clip finished, "blocked" when
+   * the browser refused to start it without a user gesture, "error" when it
+   * could not be decoded. A caller playing one clip can ignore the reason; a
+   * caller playing a queue cannot, because a blocked clip resolves instantly
+   * and the whole queue would race silently to the end.
+   */
   play(blob, { token = null, rate = this.rate } = {}) {
     this.stop();
 
@@ -255,14 +263,15 @@ export class Player {
     audio.addEventListener("pause", () => this.announce());
 
     return new Promise((resolve) => {
-      const done = () => {
+      const done = (reason) => () => {
         this.stop();
-        resolve();
+        resolve({ reason });
       };
-      audio.addEventListener("ended", done, { once: true });
-      audio.addEventListener("error", done, { once: true });
-      // autoplay can be blocked; that is not worth an error, the text is there
-      audio.play().catch(done);
+      audio.addEventListener("ended", done("ended"), { once: true });
+      audio.addEventListener("error", done("error"), { once: true });
+      // autoplay can be blocked, which is not an error — the text is there —
+      // but the caller has to be able to tell the difference
+      audio.play().catch(done("blocked"));
       this.announce();
     });
   }

@@ -329,10 +329,24 @@ class Arguments:
 
 
 class Models:
-    def __init__(self, reviewer="a/one", judge="b/two", adjudicator="c/three"):
+    """Stands in for both Settings and EvalSettings in the distinctness check."""
+
+    def __init__(
+        self,
+        reviewer="a/one",
+        judge="b/two",
+        adjudicator="c/three",
+        provider="openrouter",
+        judge_provider="",
+        adjudicator_provider="",
+    ):
+        self.llm_provider = provider
         self.openrouter_model = reviewer
+        self.ollama_model = reviewer
         self.judge_model = judge
+        self.judge_provider = judge_provider
         self.adjudicator_model = adjudicator
+        self.adjudicator_provider = adjudicator_provider
 
 
 def test_three_different_models_are_allowed():
@@ -359,3 +373,28 @@ def test_skipping_a_layer_removes_it_from_the_check():
     models = Models(judge="same/model", adjudicator="same/model")
 
     check_distinct_models(models, models, Arguments(no_adjudicator=True))
+
+
+def test_the_same_model_on_two_providers_is_not_a_clash():
+    """
+    A hosted reviewer graded by a local model of the same name is two different
+    models: different weights, different quantisation, different machine.
+    """
+    models = Models(reviewer="gemma4", judge="gemma4", judge_provider="ollama", provider="openrouter")
+
+    check_distinct_models(models, models, Arguments())
+
+
+def test_the_same_model_on_the_same_provider_is_still_a_clash():
+    models = Models(reviewer="gemma4", judge="gemma4", judge_provider="openrouter", provider="openrouter")
+
+    with pytest.raises(SystemExit, match="gemma4"):
+        check_distinct_models(models, models, Arguments())
+
+
+def test_the_refusal_names_the_provider():
+    """Two levels on one model is confusing enough without hiding where it ran."""
+    models = Models(reviewer="same/model", judge="same/model", provider="ollama")
+
+    with pytest.raises(SystemExit, match="ollama"):
+        check_distinct_models(models, models, Arguments())

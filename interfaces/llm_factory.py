@@ -1,6 +1,7 @@
 from enums.LLMProvider import LLMProvider
 from exceptions.llm import LLMConfigurationError
 from interfaces.llm_interface import LLMInterface
+from interfaces.ollama_llm import OllamaLLM
 from interfaces.openrouter_llm import OpenRouterLLM
 from utils.config import Settings, get_setting
 
@@ -12,8 +13,11 @@ def build_llm(provider: LLMProvider, settings: Settings) -> LLMInterface:
     if provider is LLMProvider.OPENROUTER:
         return OpenRouterLLM(settings)
 
-    # unreachable while LLMProvider has one member, but the next one added
-    # should fail here rather than silently returning the wrong client
+    if provider is LLMProvider.OLLAMA:
+        return OllamaLLM(settings)
+
+    # a provider added to the enum and not here should fail loudly rather than
+    # silently returning the wrong client
     raise LLMConfigurationError(f"no implementation registered for provider {provider.value}")
 
 

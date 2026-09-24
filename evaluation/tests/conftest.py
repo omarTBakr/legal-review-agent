@@ -27,9 +27,17 @@ def settings(tmp_path, monkeypatch):
         "TEMP_PD_DIR": str(tmp_path),
         "TEMP_PDF_FOLDER": "TEMP_PDF",
         "TEMP_MD_FOLDER": "TEMP_MD",
+        # pinned, not inherited: without it the suite reads whatever provider
+        # the developer's .env happens to name, and passes or fails accordingly
+        "LLM_PROVIDER": "openrouter",
         "OPENROUTER_API_KEY": "test-llm-key",
         "OPENROUTER_MODEL": "test/reviewer",
+        "OLLAMA_MODEL": "test/local",
         "EVAL_JUDGE_MODEL": "test/judge",
+        # pinned for the same reason as LLM_PROVIDER: a per-level provider left
+        # to the developer's .env makes the suite pass or fail by local config
+        "EVAL_JUDGE_PROVIDER": "",
+        "EVAL_ADJUDICATOR_PROVIDER": "",
         "LEGAL_PAGES_PER_BATCH": "2",
     }
     for key, value in env.items():

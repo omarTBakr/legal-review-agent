@@ -23,7 +23,19 @@ worker, and a browser UI served by the API drives the legal review.
 
 ## Contents
 
+- [Demo](#demo)
 - [Screenshots](#screenshots)
+  - [A finished review](#a-finished-review)
+  - [The risk register](#the-risk-register)
+  - [What changed between two rounds](#what-changed-between-two-rounds)
+  - [Asking about the review, by voice](#asking-about-the-review-by-voice)
+  - [The contract, marked up](#the-contract-marked-up)
+  - [Temporal](#temporal)
+- [The complete workflow](#the-complete-workflow)
+  - [What you can do with a finished review](#what-you-can-do-with-a-finished-review)
+  - [The same thing as a script](#the-same-thing-as-a-script)
+  - [What guards what](#what-guards-what)
+  - [Measuring it](#measuring-it)
 - [How it works](#how-it-works)
   - [PDF to Markdown](#pdf-to-markdown)
   - [Legal review](#legal-review)
@@ -49,15 +61,22 @@ worker, and a browser UI served by the API drives the legal review.
   - [`GET /projects`](#get-projects)
   - [`GET /projects/{project_id}`](#get-projectsproject_id)
   - [`GET /projects/{project_id}/reviews/{task_id}`](#get-projectsproject_idreviewstask_id)
+  - [`GET /projects/{project_id}/register`](#get-projectsproject_idregister)
+  - [`GET /projects/{project_id}/compare`](#get-projectsproject_idcompare)
+  - [`GET /legal/{task_id}/annotated`](#get-legaltask_idannotated)
   - [`POST /legal`](#post-legal)
   - [`GET /legal/{task_id}`](#get-legaltask_id)
   - [`POST /legal/{task_id}/respond`](#post-legaltask_idrespond)
   - [`POST /projects/{project_id}/reviews/{task_id}/chat`](#post-projectsproject_idreviewstask_idchat)
   - [`POST /voice/transcribe`](#post-voicetranscribe)
   - [`POST /voice/speak`](#post-voicespeak)
+  - [`GET /projects/{project_id}/reviews/{task_id}/audio/{turn}/{kind}`](#get-projectsproject_idreviewstask_idaudioturnkind)
   - [Errors](#errors)
   - [Task ids](#task-ids)
+- [Authentication](#authentication)
+- [Running on a local model](#running-on-a-local-model)
 - [Tests](#tests)
+- [Evaluating the review](#evaluating-the-review)
 - [Code quality](#code-quality)
 - [Exceptions](#exceptions)
 - [Temporal activities](#temporal-activities)
@@ -68,13 +87,68 @@ worker, and a browser UI served by the API drives the legal review.
   - [Persistent scratch space](#persistent-scratch-space)
 - [License](#license)
 
+## Demo
+
+One real use case, end to end: upload a contract, watch the review run, read the
+risks, then ask about them.
+
+![Uploading an NDA, the review running, the eight risks it found, and a question answered with clause and page citations](images/walkthrough.gif)
+
+Nothing here is staged. It is a recording of an actual review — a real PDF
+uploaded through the browser, a real `LegalReviewWorkflow` on a real Temporal
+server — and the eight risks are what the model found, not a fixture. It ran on
+`gemma4:e4b` through Ollama on a laptop GPU, took about twenty seconds end to
+end, and cost nothing.
+
+The question at the end is answered from the stored advice and the document
+text, with the clause and page it rests on printed underneath.
+
 ## Screenshots
 
-The browser UI with a finished review: the totals and risks by severity, then
-one card per document with its review decision, summary, key risks and where
-the advice was stored.
+Each of the five views in its own right.
 
-![The Legal Review Agent browser UI showing a completed review](images/ui.png)
+### A finished review
+
+The totals and risks by severity, then one card per document: its review
+decision, summary, and every risk with the clause it rests on, the page, and the
+passage quoted word for word. `Download marked-up PDF` hands back the contract
+itself.
+
+![A completed review showing risks with their quotes and pages](images/review.jpg)
+
+### The risk register
+
+Every risk across the whole project, worst first, each linking back to the
+review it came from. 43 risks over 5 documents here, filtered to a severity
+floor without a round trip.
+
+![The project risk register, 43 risks across 5 documents, filtered by severity](images/register.jpg)
+
+### What changed between two rounds
+
+Round two against round one: what was fixed, what is new, and what got worse,
+with the previous wording kept beside the new. No model call — it is quote
+matching, so it costs nothing and says the same thing every time.
+
+![A comparison of two rounds of an NDA, showing new and worsened risks](images/compare.jpg)
+
+### Asking about the review, by voice
+
+The chat panel reads the review and the documents back. `Read answers` speaks
+every answer in the thread, highlighting each word as it is said.
+
+![The chat panel answering a question about the NDA, with the Read answers control](images/chat.jpg)
+
+### The contract, marked up
+
+The original PDF with each verified quote highlighted in its severity's colour
+and the finding attached as a note. Only verified quotes are highlighted;
+anything the evidence check could not place goes on an appendix page rather than
+being dropped.
+
+![A page of the reviewed contract with the liability and IP clauses highlighted](images/annotated.png)
+
+### Temporal
 
 Finished reviews in the Temporal web UI, one `legal-review-<task_id>` workflow
 per review:
@@ -88,6 +162,130 @@ until the `human_response` signal arrives and `human_followup` revises its
 advice before `upload_advice` stores it.
 
 ![The Temporal timeline of a legal review, including the wait for a human answer](images/temporal_workflow.png)
+
+## The complete workflow
+
+End to end, from a PDF nobody has read to something a lawyer can act on. Every
+stage is optional except the first three — a review with no project, no email,
+no questions and no export is still a review.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant API as FastAPI
+    participant S3 as Bucket
+    participant T as Temporal
+    participant W as Legal worker
+    participant M as Model
+
+    You->>API: POST /legal (files, project_id, email, supersedes)
+    API->>API: stream to disk, check %PDF-, bound the size
+    API->>S3: store the PDFs, delete the local copies
+    API->>T: start LegalReviewWorkflow (keys, never bytes)
+    API-->>You: 202 + task_id
+
+    loop each document, LEGAL_MAX_CONCURRENT_PDFS at a time
+        T->>W: download_pdf, split_pages
+        loop each batch of LEGAL_PAGES_PER_BATCH pages
+            W->>M: analyze_batch
+            M-->>W: risks, each with a quote
+            W->>W: check every quote against the page
+        end
+        W->>M: merge_advice
+        M-->>W: one review for the document
+
+        alt the model needs a fact the document lacks
+            W-->>You: needs_human + the question
+            Note over W: gives up its concurrency slot and waits<br/>HUMAN_INPUT_TIMEOUT_SECONDS
+            You->>API: POST /legal/{task_id}/respond
+            API->>T: human_response signal
+            T->>W: the answer
+            W->>M: human_followup
+            M-->>W: the revised review
+        else nobody answered in time
+            Note over W: the draft is kept and flagged unreviewed
+        end
+
+        W->>S3: upload_advice
+        W->>W: cleanup_scratch
+    end
+
+    W-->>You: the emailed report, if an address was given
+    You->>API: read it, ask about it, compare it, export it
+```
+
+### What you can do with a finished review
+
+Everything below reads the advice back out of the bucket, so it keeps working
+after Temporal has dropped the workflow's history.
+
+| | |
+| --- | --- |
+| Follow it while it runs | `GET /legal/{task_id}` |
+| Read it ever after | `GET /projects/{id}/reviews/{task_id}` |
+| Ask about it | `POST .../chat`, `POST .../chat/stream` — text or voice |
+| Hear it | `POST /voice/speak` — with word timings, so the page highlights each word as it is read |
+| See the whole client | `GET /projects/{id}/register` — every risk, worst first |
+| Compare round two | `GET /projects/{id}/compare` — fixed / new / worse |
+| Hand it over | `GET /legal/{task_id}/annotated` — the PDF, highlighted |
+
+### The same thing as a script
+
+```bash
+KEY="$API_KEY"                      # empty if API_KEY is not set
+API=http://localhost:8000
+
+# 1. a folder for this client
+project=$(curl -s -X POST $API/projects -H "X-API-Key: $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Northwind","email":"counsel@example.com"}' | jq -r .id)
+
+# 2. the contracts
+task=$(curl -s -X POST $API/legal -H "X-API-Key: $KEY" \
+  -F files=@services-agreement.pdf -F files=@mutual-nda.pdf \
+  -F project_id="$project" | jq -r .task_id)
+
+# 3. follow it; it reports awaiting_human when the model has a question
+curl -s $API/legal/$task -H "X-API-Key: $KEY" | jq '{status, documents}'
+
+# 4. answer the question, if it asked one
+curl -s -X POST $API/legal/$task/respond -H "X-API-Key: $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"pdf_key":"'"$project"'/services-agreement-a1b2c3d4.pdf",
+       "answer":"The client is Northwind; treat them as the customer."}'
+
+# 5. the whole client in one list, criticals only
+curl -s "$API/projects/$project/register?minimum=critical" -H "X-API-Key: $KEY" | jq .counts
+
+# 6. the marked-up contract
+curl -s -H "X-API-Key: $KEY" \
+  "$API/legal/$task/annotated?pdf_key=$project/services-agreement-a1b2c3d4.pdf&project_id=$project" \
+  -o services-agreement-reviewed.pdf
+
+# 7. when they send round two, upload it with --form supersedes="$task", then
+curl -s "$API/projects/$project/compare?base=$task&against=$round2" -H "X-API-Key: $KEY" | jq .totals
+```
+
+### What guards what
+
+| Stage | What protects it |
+| --- | --- |
+| Upload | `%PDF-` magic bytes, per-file and per-request size limits, all-or-nothing storage |
+| Every route | `X-API-Key` (`utils/auth.py`); `/health` and the UI stay open |
+| Model replies | `LegalAdvice.from_model` — a bad *reply* is retried, a bad *risk* is dropped and counted |
+| Every quote | `utils/evidence.py` checks it against the page; unverified quotes are flagged everywhere they appear |
+| Workflow changes | `tests/test_workflow_replay.py` replays captured histories, so a change cannot break a review already in flight |
+| Prompt changes | `evaluation/` — the fixture suite on every change, CUAD periodically |
+| Scratch files | `cleanup_scratch` in a `finally`, so a failed review cleans up too |
+
+### Measuring it
+
+The pipeline above is the product. [`evaluation/`](evaluation/README.md) is how
+you find out whether a change to it helped: three layers over CUAD, a fast
+fixture suite over invented contracts, and one model per level so nothing grades
+its own output. It can run entirely on a local model, for nothing — see
+[Running on a local model](#running-on-a-local-model).
 
 ## How it works
 
@@ -539,6 +737,12 @@ cp .env.example .env
 | `OPENROUTER_API_KEY` | OpenRouter API key, needed by the legal review worker |
 | `OPENROUTER_MODEL` | OpenRouter model id the legal review uses |
 | `OPENROUTER_BASE_URL` | OpenRouter API base URL (default `https://openrouter.ai/api/v1`) |
+| `LLM_PROVIDER` | `openrouter` (hosted) or `ollama` (a model on this machine) |
+| `EVAL_JUDGE_PROVIDER` / `EVAL_ADJUDICATOR_PROVIDER` | Override the provider for one evaluation layer, so a hosted reviewer can be graded by a local model for nothing |
+| `OLLAMA_BASE_URL` | Local Ollama server (default `http://localhost:11434`) |
+| `OLLAMA_MODEL` | Which `ollama list` model answers (default `gemma4:e4b`) |
+| `OLLAMA_CONTEXT_TOKENS` | `num_ctx`, the context actually used (default `32768`). **Ollama truncates to its own much smaller default otherwise**, so the model would read half a contract and report no risks in the half it never saw |
+| `OLLAMA_THINK` | Let a reasoning model think first (default `false`; measured here at 26.1s with, 0.5s without, same answer) |
 | `LLM_PROVIDER` | Which `LLMInterface` implementation `get_llm()` returns (default `openrouter`) |
 | `LLM_MAX_TOKENS` | Longest reply the model may write (default `16000`) |
 | `LLM_TIMEOUT_SECONDS` | Timeout for one model call (default `300`) |
@@ -790,6 +994,84 @@ stored yet are listed under `pending` instead of `documents`.
 Use `GET /legal/{task_id}` while a review is running: it is the live view, with
 progress and pending questions. This one is the durable one.
 
+### `GET /projects/{project_id}/register`
+
+Every risk in the project, worst first — the answer to "what is the worst thing
+across this client's contracts" without opening each review.
+
+| Parameter | Meaning |
+| --- | --- |
+| `minimum` | Drop anything below this severity: `low`, `medium`, `high`, `critical` |
+| `include_superseded` | Include rounds a later review replaced (default `false`) |
+
+No model call: the advice is already in the bucket and this is a different way
+through it. Superseded rounds are left out by default, or four rounds of one
+contract would report the same liability cap four times.
+
+```json
+{
+  "project_id": "northwind-a1b2c3d4",
+  "risk_count": 43,
+  "documents": 5,
+  "counts": { "critical": 15, "high": 19, "medium": 9, "low": 0 },
+  "unverified": 0,
+  "superseded_reviews": 0,
+  "risks": [
+    {
+      "task_id": "b860079c",
+      "pdf_key": "northwind-a1b2c3d4/services-agreement-b860079c.pdf",
+      "description": "Client's liability is unlimited while the Supplier's is capped at 10%.",
+      "severity": "critical",
+      "location": "Clauses 6.1 and 6.2",
+      "page": 2,
+      "quote_verified": true
+    }
+  ]
+}
+```
+
+### `GET /projects/{project_id}/compare`
+
+What changed between two rounds of the same contract. `base` is the earlier
+review's task id, `against` the later one.
+
+Risks are paired on their quotes and each is `fixed`, `new`, `unchanged`,
+`worse` or `better`. **No model call** — it is string matching, so it costs
+nothing and gives the same answer every time it is asked. A clause reworded past
+the matching threshold reads as one risk gone and another arrived, which is the
+honest answer: at that point it is not the same sentence.
+
+Documents pair on the filename with the upload suffix stripped, or one-to-one
+when each round is a single file, so re-uploading round two under a tidier name
+does not read as "everything fixed, everything new". Anything unpaired is
+reported rather than counted.
+
+```json
+{
+  "base": "round1", "against": "round2",
+  "totals": { "fixed": 1, "better": 1, "unchanged": 1, "worse": 3, "new": 4,
+              "net_severity_change": 10 },
+  "unpaired": [], "not_reviewed_yet": [],
+  "documents": [ { "document": "...", "base_document": "...", "changes": [ ... ] } ]
+}
+```
+
+`net_severity_change` is one number for "is this draft better or worse": a fixed
+critical is −4 against a new medium at +2. It is a summary and nothing more — a
+single new critical outweighs six fixed lows, and should.
+
+### `GET /legal/{task_id}/annotated`
+
+The original PDF with every verified risk highlighted in its severity's colour
+and the finding attached as a popup note. Takes `pdf_key`, and `project_id` when
+the document lives in a project.
+
+Only verified quotes can be highlighted — an unverified quote is one the evidence
+check could not find, so there is nothing to draw a box around. Those risks go on
+an appendix page rather than being dropped. The reply carries
+`X-Risks-Highlighted` and `X-Risks-Listed-Only` so a caller can tell the
+difference between a clean contract and a failed search.
+
 ### `POST /legal`
 
 Accepts `multipart/form-data` with one field named `files` per document, each a
@@ -976,6 +1258,69 @@ interleave in the log, but each stays separable:
 
 Grepping one task id gives you that run and nothing else.
 
+## Authentication
+
+One shared secret on an `X-API-Key` header, checked before any route runs. Not a
+user model: there is nothing here about who you are, only that you were given
+the key — the difference between "anyone who can reach the port owns every
+client's contracts" and "you need the secret".
+
+```bash
+API_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
+curl -H "X-API-Key: $API_KEY" http://localhost:8000/projects
+```
+
+- **An empty `API_KEY` leaves every route open**, which is right on a laptop and
+  wrong anywhere else. Both the API and the voice service say so at startup, at
+  `WARNING`.
+- `/health` stays open, so a monitor does not need the secret to see the process
+  is alive, and so does the static UI, because the page has to load before it can
+  ask for the key.
+- The browser keeps it in `sessionStorage` — it goes when the tab does — and a
+  `401` raises an inline form rather than a modal dialog.
+- The dependency hangs off the routers in `main.py` rather than off each route,
+  so an endpoint added later is covered by having been added at all.
+  `tests/test_auth.py` walks the app's own OpenAPI schema and asserts every
+  operation answers `401` without the key.
+- The comparison is `hmac.compare_digest`: `==` returns as soon as two bytes
+  differ, and how long it took says how much of the key was right.
+
+The voice service checks the same key, because it holds no documents but will
+run two models on a GPU for anyone who can reach the port.
+
+## Running on a local model
+
+`LLM_PROVIDER=ollama` points the whole pipeline at a model on this machine. The
+per-call cost goes to zero, which mostly matters for the evaluation: a sweep
+stops being a budget decision.
+
+```bash
+ollama pull gemma4:e4b
+LLM_PROVIDER=ollama OLLAMA_MODEL=gemma4:e4b uv run python main.py
+```
+
+Two things will otherwise produce a confident and wrong answer:
+
+- **`OLLAMA_CONTEXT_TOKENS` must cover the batch.** Ollama does not use a
+  model's full context by default — it truncates to its own much smaller one,
+  silently. At `LEGAL_PAGES_PER_BATCH=30` a batch is ~21,000 tokens, so on the
+  default the model reads the opening pages and reports no risks in the rest of
+  a contract it never saw. On a consumer GPU, lower the batch size instead.
+- **`OLLAMA_THINK` is off for a reason.** A reasoning model returns its
+  reasoning in a separate field. Measured here, the same one-line answer took
+  26.1s with thinking and 0.5s without, and on a long prompt the reasoning
+  consumed the whole reply budget and the answer came back empty.
+
+Local models get their own `OLLAMA_TIMEOUT_SECONDS` (900), because
+`LLM_TIMEOUT_SECONDS` is tuned for a hosted API and an 8B on a laptop takes
+minutes on a long contract.
+
+The evaluation can mix the two: `EVAL_JUDGE_PROVIDER` and
+`EVAL_ADJUDICATOR_PROVIDER` set the provider for one layer, so a hosted reviewer
+can be graded by a local model for nothing. See
+[`evaluation/README.md`](evaluation/README.md) for what that number is and is not
+worth.
+
 ## Tests
 
 ```bash
@@ -1040,6 +1385,35 @@ tests/test_voice.py      the voice client against MockTransport, the factories,
 tests/test_ui.py         every module is served, its imports resolve, and the
                          endpoints it calls exist in the API
 ```
+
+## Evaluating the review
+
+The tests say the pipeline works. They cannot say whether a prompt change made
+the reviews *better*. [`evaluation/`](evaluation/README.md) does:
+
+```bash
+uv run python -m evaluation.fixtures.run      # every prompt change: seconds, cents
+uv run python -m evaluation.run --limit 25    # periodically: CUAD, a fixed sample
+uv run python -m evaluation.run --dry-run     # re-score after a metric change: free
+```
+
+Three layers, and **one model per level, none of them the same** — the run
+refuses to start otherwise, because a model grading its own output agrees with
+itself:
+
+| Level | What it does | Sees |
+| --- | --- | --- |
+| Layer 1 | Span recall against CUAD's annotations, and a CUAD-shaped extraction task | everything |
+| Layer 2 | A stronger model grades each matched finding on a four-part rubric | every matched finding |
+| Layer 3 | The strongest model re-decides only what layer 2 escalated, and says which cases still need a lawyer | the escalations |
+
+The headline is the **end-to-end miss rate**: risky clauses no layer caught.
+Every other number is labelled for what it is *and is not* comparable to — the
+suite's own README lists fourteen known weaknesses, including the ones that will
+still get the numbers quoted wrongly.
+
+The corpus is CUAD v1 (510 contracts, 13,823 annotated spans), downloaded on
+demand with a pinned SHA-256 and never committed.
 
 ## Code quality
 

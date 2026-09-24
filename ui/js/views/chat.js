@@ -122,7 +122,24 @@ export function chatPanel(projectId, taskId) {
 
   // the answer currently being read aloud, so its highlight can be cleared
   // when another one starts
-  const room = { projectId, taskId, thread, empty, status, error, send, autoplay, speed, counter, player, reading: null };
+  // every answer on screen, so the panel can read them all back, and whether
+  // it is currently doing so
+  const room = {
+    projectId,
+    taskId,
+    thread,
+    empty,
+    status,
+    error,
+    send,
+    autoplay,
+    speed,
+    counter,
+    player,
+    reading: null,
+    answers: [],
+    readingAll: false,
+  };
 
   const form = el(
     "form",
@@ -158,7 +175,8 @@ export function chatPanel(projectId, taskId) {
       el(
         "div",
         { class: "chat-controls muted small" },
-        el("label", { class: "autoplay" }, autoplay, " Read answers aloud"),
+        readAloud(room),
+        el("label", { class: "autoplay" }, autoplay, " Speak new answers"),
         el("label", { class: "autoplay speed-control", for: "chat-speed" }, "Speed", speed, speedLabel),
       ),
     ),
@@ -204,13 +222,99 @@ function answeredRow(room, turn, index) {
   const meta = el("div", { class: "muted small chat-meta" });
   const row = el("li", { class: "chat-message from-agent" }, el("span", { class: "who" }, "Review"), text, meta);
 
+  rememberAnswer(room, { turn, index, text });
   if (turn.answer) finish(room, { turn, index, text, meta });
 
   return { row, text, meta };
 }
 
+/**
+ * Remembers an answer so "Read answers" can play it back.
+ *
+ * Kept in order and keyed by turn index, because an answer can be registered
+ * twice — once empty while it streams, once whole when it finishes — and the
+ * second registration is the one with text worth reading.
+ */
+function rememberAnswer(room, { turn, index, text }) {
+  room.answers[index] = { turn, index, text };
+}
+
+/** Every answer that has something to say, oldest first. */
+function readableAnswers(room) {
+  return room.answers.filter((entry) => entry && entry.turn && entry.turn.answer);
+}
+
+/**
+ * Reads every answer in the thread, in order.
+ *
+ * The button is the whole feature: a label that says "Read answers" and does
+ * nothing when pressed is worse than no button. It stops on a second press, on
+ * an error, and when the panel's player is taken over by a single answer's own
+ * play button — `holds` is how it notices that.
+ */
+function readAloud(room) {
+  const button = el("button", { type: "button", class: "button small" }, "▶ Read answers");
+
+  const stop = () => {
+    room.readingAll = false;
+    room.player.stop();
+    button.textContent = "▶ Read answers";
+  };
+
+  button.addEventListener("click", async () => {
+    if (room.readingAll) {
+      stop();
+      return;
+    }
+
+    const answers = readableAnswers(room);
+    if (!answers.length) {
+      room.status.textContent = "Nothing to read yet — ask something first.";
+      return;
+    }
+
+    room.readingAll = true;
+    button.textContent = "⏹ Stop reading";
+    showInlineError(room.error, "");
+
+    try {
+      for (const entry of answers) {
+        if (!room.readingAll) break;
+
+        room.status.textContent = `Reading answer ${entry.index + 1} of ${answers.length}…`;
+        const { finished } = await speak(room, {
+          answer: entry.turn.answer,
+          index: entry.index,
+          stored: Boolean(entry.turn.answer_audio),
+          text: entry.text,
+        });
+
+        const { reason } = await finished;
+        if (reason === "blocked") {
+          // a blocked clip resolves at once, so carrying on would race through
+          // every answer in silence and look like the button does nothing
+          showInlineError(
+            room.error,
+            "Your browser blocked playback. Press ▶ Play on one answer first, then Read answers will work.",
+          );
+          break;
+        }
+      }
+    } catch (failure) {
+      showInlineError(room.error, failure.message);
+    } finally {
+      room.status.textContent = "";
+      stop();
+    }
+  });
+
+  return button;
+}
+
 /** Fills in the citations, the time and the transport once an answer is whole. */
 function finish(room, { turn, index, text, meta }) {
+  // re-registered now the answer is whole, so "Read answers" has the text
+  rememberAnswer(room, { turn, index, text });
   text.classList.remove("writing");
   // one span per word, so the voice has something to light up as it reads
   text.dataset.words = "true";
