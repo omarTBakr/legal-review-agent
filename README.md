@@ -25,6 +25,7 @@ worker, and a browser UI served by the API drives the legal review.
 
 - [Screenshots](#screenshots)
 - [The complete workflow](#the-complete-workflow)
+  - [What you can do with a finished review](#what-you-can-do-with-a-finished-review)
   - [The same thing as a script](#the-same-thing-as-a-script)
   - [What guards what](#what-guards-what)
   - [Measuring it](#measuring-it)
@@ -106,61 +107,66 @@ End to end, from a PDF nobody has read to something a lawyer can act on. Every
 stage is optional except the first three — a review with no project, no email,
 no questions and no export is still a review.
 
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant API as FastAPI
+    participant S3 as Bucket
+    participant T as Temporal
+    participant W as Legal worker
+    participant M as Model
+
+    You->>API: POST /legal (files, project_id, email, supersedes)
+    API->>API: stream to disk, check %PDF-, bound the size
+    API->>S3: store the PDFs, delete the local copies
+    API->>T: start LegalReviewWorkflow (keys, never bytes)
+    API-->>You: 202 + task_id
+
+    loop each document, LEGAL_MAX_CONCURRENT_PDFS at a time
+        T->>W: download_pdf, split_pages
+        loop each batch of LEGAL_PAGES_PER_BATCH pages
+            W->>M: analyze_batch
+            M-->>W: risks, each with a quote
+            W->>W: check every quote against the page
+        end
+        W->>M: merge_advice
+        M-->>W: one review for the document
+
+        alt the model needs a fact the document lacks
+            W-->>You: needs_human + the question
+            Note over W: gives up its concurrency slot and waits<br/>HUMAN_INPUT_TIMEOUT_SECONDS
+            You->>API: POST /legal/{task_id}/respond
+            API->>T: human_response signal
+            T->>W: the answer
+            W->>M: human_followup
+            M-->>W: the revised review
+        else nobody answered in time
+            Note over W: the draft is kept and flagged unreviewed
+        end
+
+        W->>S3: upload_advice
+        W->>W: cleanup_scratch
+    end
+
+    W-->>You: the emailed report, if an address was given
+    You->>API: read it, ask about it, compare it, export it
 ```
-  ┌── you ──────────────────────────────────────────────────────────────────┐
-  │  create a project            POST /projects                             │
-  │  upload contracts            POST /legal   (files, project_id, email,    │
-  │                                             supersedes)                  │
-  └──────────────────────────────┬──────────────────────────────────────────┘
-                                 │  202 + task_id, straight away
-  ┌── the API ───────────────────▼──────────────────────────────────────────┐
-  │  stream each upload to disk in 1 MB chunks, check the %PDF- magic,      │
-  │  bound it by MAX_UPLOAD_BYTES and MAX_REQUEST_BYTES, put it in the      │
-  │  bucket, delete the local copy, record the review against the project   │
-  └──────────────────────────────┬──────────────────────────────────────────┘
-                                 │  the workflow is handed keys, never bytes
-  ┌── Temporal: LegalReviewWorkflow ────────▼───────────────────────────────┐
-  │                                                                         │
-  │  per document, LEGAL_MAX_CONCURRENT_PDFS at a time:                     │
-  │                                                                         │
-  │    download_pdf ─▶ split_pages ─▶ analyze_batch × N ─▶ merge_advice     │
-  │                    (pymupdf4llm,    (LEGAL_PAGES_      (one review per  │
-  │                     page markers)    PER_BATCH pages)   document)       │
-  │                                          │                              │
-  │                                          ▼                              │
-  │                           every quote checked against the page          │
-  │                           (utils/evidence.py) — a risk whose quote      │
-  │                           is not in the document is flagged, not hidden │
-  │                                          │                              │
-  │                      needs_human? ───────▼─────── yes ──┐               │
-  │                           │ no                          │               │
-  │                           │              the document gives up its      │
-  │                           │              concurrency slot and waits     │
-  │                           │              HUMAN_INPUT_TIMEOUT_SECONDS    │
-  │                           │                             │               │
-  │                           │         POST /legal/{id}/respond            │
-  │                           │              ┌──────────────┘               │
-  │                           │              ▼                              │
-  │                           │        human_followup — the model revises   │
-  │                           │        its draft with the answer            │
-  │                           │              │                              │
-  │                           ▼◀─────────────┘                              │
-  │                    upload_advice ─▶ cleanup_scratch ─▶ send_report      │
-  │                    (the bucket)      (local copies)     (if an address) │
-  └──────────────────────────────┬──────────────────────────────────────────┘
-                                 │
-  ┌── afterwards, from the bucket, for as long as you keep it ──────────────┐
-  │                                                                         │
-  │  read it          GET /legal/{task_id}          while it runs           │
-  │                   GET /projects/{id}/reviews/{task_id}   for ever after │
-  │  ask about it     POST .../chat  and  .../chat/stream   (text or voice) │
-  │  hear it          POST /voice/speak — with word timings, so the page    │
-  │                   highlights each word as it is read                    │
-  │  the whole client GET /projects/{id}/register   every risk, worst first │
-  │  round two        GET /projects/{id}/compare    fixed / new / worse     │
-  │  hand it over     GET /legal/{task_id}/annotated  the PDF, highlighted  │
-  └─────────────────────────────────────────────────────────────────────────┘
-```
+
+### What you can do with a finished review
+
+Everything below reads the advice back out of the bucket, so it keeps working
+after Temporal has dropped the workflow's history.
+
+| | |
+| --- | --- |
+| Follow it while it runs | `GET /legal/{task_id}` |
+| Read it ever after | `GET /projects/{id}/reviews/{task_id}` |
+| Ask about it | `POST .../chat`, `POST .../chat/stream` — text or voice |
+| Hear it | `POST /voice/speak` — with word timings, so the page highlights each word as it is read |
+| See the whole client | `GET /projects/{id}/register` — every risk, worst first |
+| Compare round two | `GET /projects/{id}/compare` — fixed / new / worse |
+| Hand it over | `GET /legal/{task_id}/annotated` — the PDF, highlighted |
 
 ### The same thing as a script
 
