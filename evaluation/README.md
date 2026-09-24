@@ -48,6 +48,36 @@ LLM_PROVIDER=ollama LEGAL_PAGES_PER_BATCH=10 EVAL_REQUEST_CONCURRENCY=1 \
 `EVAL_REQUEST_CONCURRENCY=1` because one GPU runs one generation at a time;
 asking for four in flight makes them queue and thrash rather than overlap.
 
+### A hosted reviewer, graded locally
+
+The provider is chosen **per level**, so the system under test can stay where
+the product runs while the instrument measuring it costs nothing:
+
+```bash
+LLM_PROVIDER=openrouter          # the reviewer: the thing being measured
+EVAL_JUDGE_MODEL=gemma4:e4b      # the judge: free, on this machine
+EVAL_JUDGE_PROVIDER=ollama
+```
+
+This is the cheapest way to get layer 2 running at all, and it is worth being
+exact about what it buys. Judging is a **narrower task than reviewing** — given
+one clause and one finding, say whether they match — and a small model does it
+credibly: asked to grade a correct finding against a real liability clause it
+returns 1.0, and a finding about arbitration against the same clause 0.0, with
+reasons that name why.
+
+What it is not is evidence that the review is right. A smaller judge's mistakes
+are systematic rather than random, and its agreement with a lawyer has never
+been measured. Read layer 2 in this configuration as a **regression signal
+between two runs of the same shape**, not as an accuracy figure. The run detects
+this arrangement and prints the caveat next to the layer 2 numbers, so it cannot
+be read without it.
+
+The distinctness guard compares `(provider, model)` rather than the model name,
+because the same id on two providers is two different things — different
+weights, different quantisation, different machine — while the same id on one
+provider is the clash it exists to catch.
+
 Nothing here is imported by the service. The suite calls the product's own
 parser, batching, prompts, `LegalAdvice.from_model` and `utils/evidence.py`, so a
 change to `prompts/legal_advice.py` moves the numbers. It is not a second copy of
@@ -89,6 +119,8 @@ Everything is prefixed `EVAL_` and read from the same `.env`:
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `EVAL_JUDGE_MODEL` | `anthropic/claude-sonnet-5` | Layer 2. Must differ from the other two; the run refuses otherwise |
+| `EVAL_JUDGE_PROVIDER` | *(empty)* | `openrouter` or `ollama` for this level alone; empty follows `LLM_PROVIDER` |
+| `EVAL_ADJUDICATOR_PROVIDER` | *(empty)* | As above, for layer 3 |
 | `EVAL_JUDGE_TEMPERATURE` | `0.0` | A rubric wants determinism |
 | `EVAL_JUDGE_MAX_TOKENS` | `4000` | A reasoning judge spends most of this before writing any JSON |
 | `EVAL_ADJUDICATOR_MODEL` | `anthropic/claude-opus-5` | Layer 3's expert. Must differ from the other two |

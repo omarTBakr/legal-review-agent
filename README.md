@@ -540,6 +540,7 @@ cp .env.example .env
 | `OPENROUTER_MODEL` | OpenRouter model id the legal review uses |
 | `OPENROUTER_BASE_URL` | OpenRouter API base URL (default `https://openrouter.ai/api/v1`) |
 | `LLM_PROVIDER` | `openrouter` (hosted) or `ollama` (a model on this machine) |
+| `EVAL_JUDGE_PROVIDER` / `EVAL_ADJUDICATOR_PROVIDER` | Override the provider for one evaluation layer, so a hosted reviewer can be graded by a local model for nothing |
 | `OLLAMA_BASE_URL` | Local Ollama server (default `http://localhost:11434`) |
 | `OLLAMA_MODEL` | Which `ollama list` model answers (default `gemma4:e4b`) |
 | `OLLAMA_CONTEXT_TOKENS` | `num_ctx`, the context actually used (default `32768`). **Ollama truncates to its own much smaller default otherwise**, so the model would read half a contract and report no risks in the half it never saw |

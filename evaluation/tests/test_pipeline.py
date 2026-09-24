@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+import evaluation.config
 from enums.PromptName import PromptName
 from evaluation.common.meter import TokenMeter
 from evaluation.common.pipeline import paginate, result_from_dict, review_pages, review_text, risks_from_dicts
@@ -238,3 +239,90 @@ def test_the_evaluation_prompts_are_not_in_the_products_registry():
         assert isinstance(prompt, Prompt)
         assert "legal dataset" not in prompt.system
         assert "Score each dimension" not in prompt.system
+
+
+# --- mixing providers across levels ---------------------------------------
+
+
+class Flags:
+    """The arguments the caveat and the guard read."""
+
+    def __init__(self, no_judge=False, no_adjudicator=False):
+        self.no_judge = no_judge
+        self.no_adjudicator = no_adjudicator
+
+
+def test_a_hosted_reviewer_can_be_graded_by_a_local_judge(settings):
+    """
+    The point of a per-level provider: the system under test stays where the
+    product runs, and the instrument measuring it costs nothing.
+    """
+    from interfaces.ollama_llm import OllamaLLM
+    from interfaces.openrouter_llm import OpenRouterLLM
+
+    meter = TokenMeter()
+
+    reviewer = meter.llm(settings)
+    judge = meter.llm(settings, model="gemma4:e4b", provider="ollama")
+
+    assert isinstance(reviewer, OpenRouterLLM)
+    assert reviewer.model == "test/reviewer"
+    assert isinstance(judge, OllamaLLM)
+    assert judge.model == "gemma4:e4b"
+
+
+def test_asking_for_a_local_judge_does_not_move_the_reviewer(settings):
+    """model_copy, not the environment, so one level cannot reach another."""
+    meter = TokenMeter()
+
+    meter.llm(settings, model="gemma4:e4b", provider="ollama")
+
+    assert settings.llm_provider == "openrouter"
+    assert settings.openrouter_model == "test/reviewer"
+
+
+def test_a_local_judge_over_a_hosted_reviewer_is_flagged(settings):
+    """
+    The instrument is weaker than the thing it measures, and the scorecard has
+    to say so where the numbers are read.
+    """
+    from evaluation.run import grading_caveat
+
+    eval_settings = evaluation.config.get_eval_settings().model_copy(
+        update={"judge_provider": "ollama", "judge_model": "gemma4:e4b"}
+    )
+
+    caveat = grading_caveat(settings, eval_settings, Flags())
+
+    assert "regression signal" in caveat
+    assert "gemma4:e4b" in caveat
+
+
+def test_a_hosted_judge_over_a_hosted_reviewer_is_not_flagged(settings):
+    from evaluation.run import grading_caveat
+
+    eval_settings = evaluation.config.get_eval_settings()
+
+    assert grading_caveat(settings, eval_settings, Flags()) == ""
+
+
+def test_an_all_local_run_is_not_flagged(settings, monkeypatch):
+    """Both sides local is a fair fight; the caveat is about the mismatch."""
+    import utils.config
+    from evaluation.run import grading_caveat
+
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setattr(utils.config, "_settings_instance", None)
+    local = utils.config.get_setting()
+
+    eval_settings = evaluation.config.get_eval_settings().model_copy(update={"judge_provider": "ollama"})
+
+    assert grading_caveat(local, eval_settings, Flags()) == ""
+
+
+def test_skipping_the_judge_skips_the_caveat(settings):
+    from evaluation.run import grading_caveat
+
+    eval_settings = evaluation.config.get_eval_settings().model_copy(update={"judge_provider": "ollama"})
+
+    assert grading_caveat(settings, eval_settings, Flags(no_judge=True)) == ""

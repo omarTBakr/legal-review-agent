@@ -26,6 +26,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from enums.LLMProvider import LLMProvider
 from enums.RiskSeverity import RiskSeverity
 from evaluation.common.meter import TokenMeter
 from evaluation.common.models import reviewer_model, reviewer_setting
@@ -216,20 +217,55 @@ def check_distinct_models(settings, eval_settings, arguments) -> None:
     adjudicator that is the judge cannot overturn it. Either would produce a
     number that looks like evidence and is not, which is worse than no number.
     """
-    levels = [(reviewer_setting(settings), reviewer_model(settings))]
-    if not arguments.no_judge:
-        levels.append(("EVAL_JUDGE_MODEL", eval_settings.judge_model))
-    if not (arguments.no_judge or arguments.no_adjudicator):
-        levels.append(("EVAL_ADJUDICATOR_MODEL", eval_settings.adjudicator_model))
+    default = settings.llm_provider
 
-    for index, (name, model) in enumerate(levels):
-        for other_name, other_model in levels[index + 1 :]:
-            if model == other_model:
+    levels = [(reviewer_setting(settings), default, reviewer_model(settings))]
+    if not arguments.no_judge:
+        levels.append(("EVAL_JUDGE_MODEL", eval_settings.judge_provider or default, eval_settings.judge_model))
+    if not (arguments.no_judge or arguments.no_adjudicator):
+        levels.append(("EVAL_ADJUDICATOR_MODEL", eval_settings.adjudicator_provider or default, eval_settings.adjudicator_model))
+
+    # compared as (provider, model): the same id on two providers is two
+    # different things, and the same id on one provider is the clash
+    for index, (name, provider, model) in enumerate(levels):
+        for other_name, other_provider, other_model in levels[index + 1 :]:
+            if (provider, model) == (other_provider, other_model):
                 raise SystemExit(
-                    f"{name} and {other_name} are both {model}. Each level has to be a different model: "
-                    "a model grading or overturning its own output agrees with itself, and the agreement is "
-                    "not evidence. Change one, or skip that layer."
+                    f"{name} and {other_name} are both {model} on {provider}. Each level has to be a different "
+                    "model: a model grading or overturning its own output agrees with itself, and the agreement "
+                    "is not evidence. Change one, or skip that layer."
                 )
+
+
+def grading_caveat(settings, eval_settings, arguments) -> str:
+    """
+    A warning to carry on the scorecard when the instrument is weaker than what
+    it measures, or "".
+
+    Strength cannot be checked programmatically — nothing here knows that one
+    model id is better than another. What *can* be checked is the case that
+    prompts it: a judge running on this machine while the reviewer runs on a
+    hosted frontier model. A local 8B grading a hosted model is a narrower task
+    than reviewing a contract, so it is not useless — it is a real regression
+    signal between two runs of the same shape. It is not evidence that the
+    review is right, and the difference matters enough to print.
+    """
+    if arguments.no_judge:
+        return ""
+
+    default = settings.llm_provider
+    judge_local = (eval_settings.judge_provider or default) == LLMProvider.OLLAMA.value
+    reviewer_local = default == LLMProvider.OLLAMA.value
+
+    if judge_local and not reviewer_local:
+        return (
+            f"the judge ({eval_settings.judge_model}) runs locally while the reviewer "
+            f"({reviewer_model(settings)}) does not. Read layer 2 as a regression signal "
+            "between runs, not as evidence the review is correct: a smaller judge's mistakes "
+            "are systematic, and its agreement with a lawyer has not been measured."
+        )
+
+    return ""
 
 
 def print_scorecard(report: dict) -> None:
@@ -260,6 +296,8 @@ def print_scorecard(report: dict) -> None:
     judge = report.get("layer2_judge") or {}
     if judge.get("graded"):
         print("\nLayer 2 — judge")
+        if report.get("grading_caveat"):
+            print(f"  ** {report['grading_caveat']}")
         print(f"  graded {judge['graded']}   pass rate {judge['pass_rate']:.3f}   mean score {judge['mean_total_score']:.3f}")
         print("  by dimension: " + "  ".join(f"{name} {value:.2f}" for name, value in judge["by_dimension"].items()))
         if judge.get("arithmetic_disagreements"):
@@ -413,6 +451,7 @@ async def main_async(arguments) -> dict:
             model=eval_settings.judge_model,
             temperature=eval_settings.judge_temperature,
             max_tokens=eval_settings.judge_max_tokens,
+            provider=eval_settings.judge_provider,
         )
         try:
             verdicts = await judge_all(judge_llm, findings, eval_settings.request_concurrency)
@@ -439,6 +478,7 @@ async def main_async(arguments) -> dict:
             model=eval_settings.adjudicator_model,
             temperature=eval_settings.adjudicator_temperature,
             max_tokens=eval_settings.adjudicator_max_tokens,
+            provider=eval_settings.adjudicator_provider,
         )
         try:
             adjudications = await adjudicate_all(
@@ -464,7 +504,11 @@ async def main_async(arguments) -> dict:
         "contract_titles": [contract.title for contract in sample],
         "reviewer_model": reviewer_model(settings),
         "judge_model": eval_settings.judge_model if not arguments.no_judge else "",
+        "judge_provider": (eval_settings.judge_provider or settings.llm_provider) if not arguments.no_judge else "",
         "adjudicator_model": eval_settings.adjudicator_model if adjudications else "",
+        "adjudicator_provider": (eval_settings.adjudicator_provider or settings.llm_provider) if adjudications else "",
+        "reviewer_provider": settings.llm_provider,
+        "grading_caveat": grading_caveat(settings, eval_settings, arguments),
         "sample_seed": arguments.seed or eval_settings.sample_seed,
         "dataset": ATTRIBUTION,
         "layer1a_extraction": extraction_score.to_dict() if extraction_score else None,

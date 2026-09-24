@@ -109,30 +109,42 @@ class TokenMeter:
             event_hooks={"response": [self._hook()]},
         )
 
-    def llm(self, settings: Settings, model: str = "", temperature: float | None = None, max_tokens: int = 0):
+    def llm(
+        self,
+        settings: Settings,
+        model: str = "",
+        temperature: float | None = None,
+        max_tokens: int = 0,
+        provider: str = "",
+    ):
         """
-        A metered LLM, optionally pointed at a different model than the service uses.
+        A metered LLM, optionally pointed at a different model — and a different
+        provider — than the service uses.
 
         The overrides go through Settings.model_copy rather than the environment,
         so asking for the judge cannot change which model the reviewer gets.
 
-        Which implementation comes back follows LLM_PROVIDER, so a sweep can be
-        run against a model on this machine. The meter still counts the tokens —
-        Ollama reports its own counts under different names — and prices them at
-        nothing, which is what a local model costs.
-        """
-        local = LLMProvider.parse(settings.llm_provider) is LLMProvider.OLLAMA
-        model_field = "ollama_model" if local else "openrouter_model"
+        `provider` is per level, not global. The reviewer is the system under
+        test and belongs wherever the product runs; the judge and the expert are
+        measuring instruments and can live somewhere else entirely — which is
+        how a hosted reviewer gets graded by a model on this machine for
+        nothing. Empty means "whatever LLM_PROVIDER says".
 
-        overrides = {}
+        The meter counts tokens either way. Ollama reports the same two numbers
+        under its own names, and they price at nothing, which is what they cost.
+        """
+        chosen = LLMProvider.parse(provider or settings.llm_provider)
+        local = chosen is LLMProvider.OLLAMA
+
+        overrides = {"llm_provider": chosen.value}
         if model:
-            overrides[model_field] = model
+            overrides["ollama_model" if local else "openrouter_model"] = model
         if temperature is not None:
             overrides["llm_temperature"] = temperature
         if max_tokens:
             overrides["llm_max_tokens"] = max_tokens
 
-        scoped = settings.model_copy(update=overrides) if overrides else settings
+        scoped = settings.model_copy(update=overrides)
 
         if local:
             return OllamaLLM(scoped, client=self.ollama_client(scoped))
