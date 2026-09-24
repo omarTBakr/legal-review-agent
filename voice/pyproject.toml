@@ -1,6 +1,6 @@
 [project]
 name = "legal-review-voice"
-version = "0.1.0"
+version = "0.2.0"
 description = "Speech in and out for the legal review agent: Qwen3-ASR and Qwen3-TTS behind HTTP"
 readme = "README.md"
 license = "MIT"
