@@ -47,7 +47,18 @@ BATCH = PageBatch(index=0, first_page=1, last_page=2, markdown="Clause 1. Unlimi
 
 ADVICE = LegalAdvice(
     summary="A services agreement.",
-    key_risks=[KeyRisk(description="Unlimited liability", severity=RiskSeverity.HIGH, location="clause 9")],
+    key_risks=[
+        KeyRisk(
+            description="Unlimited liability",
+            severity=RiskSeverity.HIGH,
+            location="clause 9",
+            quote="Clause 1. Unlimited liability.",
+            page=1,
+            confidence=0.9,
+            category="liability",
+            recommended_action="Negotiate a liability cap.",
+        )
+    ],
 )
 
 DOCUMENT = DocumentAdvice(pdf_key="contract-a1b2c3d4.pdf", advice=ADVICE)
@@ -202,35 +213,34 @@ async def test_analyze_batch_rejects_advice_with_no_summary(env, llm):
         )
 
 
-async def test_analyze_batch_drops_a_risk_with_an_unknown_severity(env, llm):
+async def test_analyze_batch_rejects_a_risk_with_missing_quality_fields(env, llm):
     """
-    A mislabelled risk is dropped; the rest of the document survives.
-
-    It used to fail the whole batch, on the reasoning that a mislabelled risk is
-    worse than a failure the workflow can retry. That is right about the risk
-    and wrong about the document: a 25-contract sweep on a local model lost a
-    complete review to one risk with an empty severity, and the reply is not
-    deterministic, so retrying does not reliably help. The count makes the loss
-    visible instead.
+    A finding without the complete quality contract must fail the batch.
     """
     llm.script(
         PromptName.LEGAL_ADVICE,
         {
             "summary": "ok",
             "key_risks": [
-                {"description": "unlimited liability", "severity": "critical", "quote": "x"},
+                {
+                    "description": "unlimited liability",
+                    "severity": "critical",
+                    "quote": "x",
+                    "page": 1,
+                    "confidence": 0.8,
+                    "category": "liability",
+                    "recommended_action": "Negotiate a cap.",
+                },
                 {"description": "d", "severity": "apocalyptic"},
             ],
         },
     )
 
-    result = await env.run(
-        analyze_batch,
-        AnalyzeBatchInput(task_id="t1", pdf_key="contract.pdf", batch=BATCH, batch_count=1),
-    )
-
-    assert [risk.description for risk in result.advice.key_risks] == ["unlimited liability"]
-    assert result.advice.malformed_risks == 1
+    with pytest.raises(LLMResponseError, match="unusable"):
+        await env.run(
+            analyze_batch,
+            AnalyzeBatchInput(task_id="t1", pdf_key="contract.pdf", batch=BATCH, batch_count=1),
+        )
 
 
 async def test_analyze_batch_still_rejects_a_reply_of_the_wrong_shape(env, llm):
@@ -271,7 +281,15 @@ async def test_analyze_batch_verifies_a_real_quote_and_finds_its_page(env, llm):
         {
             "summary": "ok",
             "key_risks": [
-                {"description": "d", "severity": "high", "quote": "The Supplier's liability is unlimited.", "page": 4},
+                {
+                    "description": "d",
+                    "severity": "high",
+                    "quote": "The Supplier's liability is unlimited.",
+                    "page": 4,
+                    "confidence": 0.9,
+                    "category": "liability",
+                    "recommended_action": "Negotiate a liability cap.",
+                },
             ],
         },
     )
@@ -291,7 +309,17 @@ async def test_analyze_batch_flags_an_invented_quote_but_keeps_the_risk(env, llm
         PromptName.LEGAL_ADVICE,
         {
             "summary": "ok",
-            "key_risks": [{"description": "d", "severity": "high", "quote": "The Customer owes ten million pounds.", "page": 5}],
+            "key_risks": [
+                {
+                    "description": "d",
+                    "severity": "high",
+                    "quote": "The Customer owes ten million pounds.",
+                    "page": 5,
+                    "confidence": 0.4,
+                    "category": "payment",
+                    "recommended_action": "Verify the payment obligation.",
+                }
+            ],
         },
     )
 
@@ -311,7 +339,16 @@ async def test_the_model_cannot_mark_its_own_quote_verified(env, llm):
         {
             "summary": "ok",
             "key_risks": [
-                {"description": "d", "severity": "high", "quote": "Nothing like this is in it.", "quote_verified": True}
+                {
+                    "description": "d",
+                    "severity": "high",
+                    "quote": "Nothing like this is in it.",
+                    "page": 5,
+                    "confidence": 0.2,
+                    "category": "other",
+                    "recommended_action": "Review manually.",
+                    "quote_verified": True,
+                }
             ],
         },
     )
@@ -334,6 +371,9 @@ VERIFIED = LegalAdvice(
             severity=RiskSeverity.HIGH,
             quote="The Supplier's liability is unlimited.",
             page=5,
+            confidence=0.9,
+            category="liability",
+            recommended_action="Negotiate a liability cap.",
             quote_verified=True,
         )
     ],
@@ -357,8 +397,24 @@ async def test_a_quote_the_merge_kept_intact_stays_verified(env, llm):
         {
             "summary": "Merged.",
             "key_risks": [
-                {"description": "kept", "severity": "high", "quote": "The Supplier's liability is unlimited."},
-                {"description": "rewritten", "severity": "low", "quote": "Liability has no cap at all, it seems."},
+                {
+                    "description": "kept",
+                    "severity": "high",
+                    "quote": "The Supplier's liability is unlimited.",
+                    "page": 5,
+                    "confidence": 0.9,
+                    "category": "liability",
+                    "recommended_action": "Negotiate a cap.",
+                },
+                {
+                    "description": "rewritten",
+                    "severity": "low",
+                    "quote": "Liability has no cap at all, it seems.",
+                    "page": 5,
+                    "confidence": 0.4,
+                    "category": "liability",
+                    "recommended_action": "Review manually.",
+                },
             ],
         },
     )
@@ -393,7 +449,7 @@ async def test_the_merge_prompt_receives_every_part(env, llm):
     await env.run(merge_advice, MergeAdviceInput(task_id="t1", pdf_key="a.pdf", parts=[ADVICE, ADVICE]))
 
     parts_text = llm.calls_for(PromptName.MERGE_ADVICE)[0]["variables"]["parts"]
-    assert parts_text.count("Unlimited liability") == 2
+    assert parts_text.count("Unlimited liability") == 4
 
 
 async def test_merging_nothing_is_an_error(env, llm):
@@ -459,7 +515,15 @@ async def test_followup_keeps_verification_for_quotes_it_left_alone(env, llm):
         {
             "summary": "Revised.",
             "key_risks": [
-                {"description": "still there", "severity": "critical", "quote": "The Supplier's liability is unlimited."}
+                {
+                    "description": "still there",
+                    "severity": "critical",
+                    "quote": "The Supplier's liability is unlimited.",
+                    "page": 5,
+                    "confidence": 0.9,
+                    "category": "liability",
+                    "recommended_action": "Negotiate a cap.",
+                }
             ],
         },
     )

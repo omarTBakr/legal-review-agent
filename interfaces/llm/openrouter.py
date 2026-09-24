@@ -10,7 +10,7 @@ from exceptions.llm import (
     LLMResponseError,
     LLMTimeoutError,
 )
-from interfaces.llm_interface import LLMInterface
+from interfaces.llm.interface import LLMInterface
 from prompts.prompt import Prompt
 from utils.config import Settings
 from utils.logger import get_logger

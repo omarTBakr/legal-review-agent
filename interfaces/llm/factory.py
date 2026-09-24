@@ -1,8 +1,8 @@
 from enums.LLMProvider import LLMProvider
 from exceptions.llm import LLMConfigurationError
-from interfaces.llm_interface import LLMInterface
-from interfaces.ollama_llm import OllamaLLM
-from interfaces.openrouter_llm import OpenRouterLLM
+from interfaces.llm.interface import LLMInterface
+from interfaces.llm.ollama import OllamaLLM
+from interfaces.llm.openrouter import OpenRouterLLM
 from utils.config import Settings, get_setting
 
 _instances: dict[LLMProvider, LLMInterface] = {}

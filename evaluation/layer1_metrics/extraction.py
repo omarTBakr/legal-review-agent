@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from evaluation.common.prompts import EXTRACTION_PROMPT
 from evaluation.common.spans import JACCARD_THRESHOLD, Counts, match_spans
 from evaluation.cuad.loader import Clause, Contract
-from interfaces.llm_interface import LLMInterface
+from interfaces.llm.interface import LLMInterface
 from utils.logger import get_logger
 
 logger = get_logger(__name__)

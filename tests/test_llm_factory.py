@@ -1,6 +1,6 @@
 import pytest
 
-import interfaces.llm_factory
+import interfaces.llm.factory
 from enums.LLMProvider import LLMProvider
 from exceptions.llm import LLMConfigurationError
 from interfaces import LLMInterface, OpenRouterLLM, get_llm, reset_llm_cache, set_llm
@@ -8,7 +8,7 @@ from interfaces import LLMInterface, OpenRouterLLM, get_llm, reset_llm_cache, se
 
 @pytest.fixture(autouse=True)
 def clear_cache(monkeypatch):
-    monkeypatch.setattr(interfaces.llm_factory, "_instances", {})
+    monkeypatch.setattr(interfaces.llm.factory, "_instances", {})
 
 
 def test_the_default_provider_comes_from_settings(settings):

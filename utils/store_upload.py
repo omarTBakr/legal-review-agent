@@ -112,7 +112,9 @@ async def write_upload(upload, destination: Path, settings: Settings, budget: in
     return written
 
 
-async def store_upload(upload, settings: Settings, prefix: str = "", bucket: str = "", budget: int | None = None) -> StoredUpload:
+async def store_upload(
+    upload, settings: Settings, prefix: str = "", bucket: str = "", budget: int | None = None, task_id: str | None = None
+) -> StoredUpload:
     """
     Writes the PDF to the local scratch folder and uploads it to the PDF bucket.
 
@@ -122,7 +124,7 @@ async def store_upload(upload, settings: Settings, prefix: str = "", bucket: str
     `prefix` files the document inside a project's folder, and `bucket` is that
     project's bucket; without them it is the pipeline's own PDF bucket.
     """
-    task_id, pdf_key, md_key, local_pdf = build_run_artifacts(upload.filename, settings, prefix)
+    task_id, pdf_key, md_key, local_pdf = build_run_artifacts(upload.filename, settings, prefix, task_id)
     bucket = bucket or settings.s3_pdf_bucket
 
     written = await write_upload(upload, local_pdf, settings, budget)
@@ -140,7 +142,9 @@ async def store_upload(upload, settings: Settings, prefix: str = "", bucket: str
     return StoredUpload(task_id=task_id, pdf_key=pdf_key, md_key=md_key, local_pdf="", size=written)
 
 
-async def store_uploads(uploads: list, settings: Settings, prefix: str = "", bucket: str = "") -> tuple[str, list[str]]:
+async def store_uploads(
+    uploads: list, settings: Settings, prefix: str = "", bucket: str = "", task_id: str | None = None
+) -> tuple[str, list[str]]:
     """
     Stores several PDFs under one shared task id.
 
@@ -163,14 +167,17 @@ async def store_uploads(uploads: list, settings: Settings, prefix: str = "", buc
     for upload in uploads:
         validate_upload(upload.filename, await _peek(upload))
 
+    claimed_task_id = task_id
     task_id = ""
     pdf_keys: list[str] = []
     stored_keys: list[str] = []
     remaining = settings.max_request_bytes
 
     try:
-        for upload in uploads:
-            stored = await store_upload(upload, settings, prefix, bucket, budget=remaining)
+        for index, upload in enumerate(uploads):
+            stored = await store_upload(
+                upload, settings, prefix, bucket, budget=remaining, task_id=claimed_task_id if index == 0 else None
+            )
             # the first document's id names the whole review
             task_id = task_id or stored.task_id
             pdf_keys.append(stored.pdf_key)

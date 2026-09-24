@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 import httpx
 
 from enums.LLMProvider import LLMProvider
-from interfaces.ollama_llm import OllamaLLM
-from interfaces.openrouter_llm import OpenRouterLLM
+from interfaces.llm.ollama import OllamaLLM
+from interfaces.llm.openrouter import OpenRouterLLM
 from utils.config import Settings
 from utils.logger import get_logger
 

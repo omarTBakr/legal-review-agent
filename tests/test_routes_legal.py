@@ -11,6 +11,7 @@ import routes.legal
 import utils.temporal_client
 from enums.ReviewDecision import ReviewDecision
 from enums.RiskSeverity import RiskSeverity
+from exceptions.storage import StorageError
 from main import app
 from schemas.key_risk import KeyRisk
 from schemas.legal_advice import LegalAdvice
@@ -79,6 +80,9 @@ class StubHandle:
             raise self._signal_error
         self._signals.append({"id": self.id, "signal": signal_fn.__name__, "args": args})
 
+    async def cancel(self):
+        self._status = WorkflowExecutionStatus.CANCELED
+
 
 class StubClient:
     def __init__(self):
@@ -112,9 +116,9 @@ def client(s3, temporal):
     return TestClient(app)
 
 
-def submit(client, pdf_bytes, count=2, **data):
+def submit(client, pdf_bytes, count=2, headers=None, **data):
     files = [("files", (f"contract{i}.pdf", pdf_bytes, "application/pdf")) for i in range(count)]
-    return client.post("/legal", files=files, data=data or None)
+    return client.post("/legal", files=files, data=data or None, headers=headers)
 
 
 # --- POST /legal, inside a project ---------------------------------------
@@ -214,6 +218,32 @@ def test_submit_returns_202_immediately(client, pdf_bytes):
     assert body["status"] == "processing"
     assert body["workflow_id"] == f"legal-review-{body['task_id']}"
     assert body["pdf_count"] == 2
+
+
+def test_same_idempotency_key_returns_the_original_legal_task(client, pdf_bytes, temporal):
+    first = submit(client, pdf_bytes, count=1, headers={"Idempotency-Key": "legal-retry"})
+    second = submit(client, pdf_bytes, count=1, headers={"Idempotency-Key": "legal-retry"})
+
+    assert first.status_code == second.status_code == 202
+    assert second.json()["task_id"] == first.json()["task_id"]
+    assert len(temporal.calls) == 1
+
+
+def test_legal_idempotency_key_rejects_a_different_request(client, pdf_bytes):
+    submit(client, pdf_bytes, count=1, headers={"Idempotency-Key": "legal-conflict"})
+
+    response = submit(client, pdf_bytes, count=2, headers={"Idempotency-Key": "legal-conflict"})
+
+    assert response.status_code == 409
+
+
+def test_running_legal_review_can_be_canceled(client, temporal):
+    temporal.handle_kwargs = {"status": WorkflowExecutionStatus.RUNNING}
+
+    response = client.post("/legal/abc123/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "canceled"
 
 
 def test_every_document_reaches_the_bucket(client, pdf_bytes, s3, settings):
@@ -325,7 +355,11 @@ def test_status_when_completed_returns_the_advice(client, temporal):
             "location": "clause 9",
             "quote": "",
             "page": None,
+            "confidence": 0.0,
+            "category": "",
+            "recommended_action": "",
             "quote_verified": False,
+            "verification_status": "unverified",
         },
     ]
     assert document["review_decision"] == "unreviewed_timeout"
@@ -373,3 +407,45 @@ def test_an_answer_without_a_pdf_key_is_422(client, temporal):
 
     assert response.status_code == 422
     assert temporal.signals == []
+
+
+def test_a_failed_submission_releases_its_idempotency_key(client, pdf_bytes, temporal, monkeypatch):
+    """
+    The claim is written before the upload, so it has to be given back when the
+    upload does not happen. Otherwise the client's retry is answered with the
+    task id it reserved, for a workflow that was never started, and they poll it
+    for ever.
+    """
+
+    real = routes.legal.store_uploads
+
+    async def explode(*args, **kwargs):
+        raise StorageError("the bucket refused it")
+
+    monkeypatch.setattr(routes.legal, "store_uploads", explode)
+    failed = submit(client, pdf_bytes, count=1, headers={"Idempotency-Key": "legal-rollback"})
+
+    assert failed.status_code >= 400
+    assert temporal.calls == []
+
+    # restored by hand rather than with monkeypatch.undo(), which shares its
+    # instance with the autouse settings fixture and would revert the fake
+    # environment with it — putting the real .env, and a real database, back
+    monkeypatch.setattr(routes.legal, "store_uploads", real)
+
+    # the same key must now behave like a first attempt, not replay a task that
+    # does not exist
+    retried = submit(client, pdf_bytes, count=1, headers={"Idempotency-Key": "legal-rollback"})
+
+    assert retried.status_code == 202
+    assert len(temporal.calls) == 1
+    assert retried.json()["pdf_count"] == 1
+
+
+def test_a_successful_submission_keeps_its_key(client, pdf_bytes, temporal):
+    """The guard must only release on failure, or idempotency does nothing."""
+    first = submit(client, pdf_bytes, count=1, headers={"Idempotency-Key": "legal-keeps"})
+    second = submit(client, pdf_bytes, count=1, headers={"Idempotency-Key": "legal-keeps"})
+
+    assert second.json()["task_id"] == first.json()["task_id"]
+    assert len(temporal.calls) == 1

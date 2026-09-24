@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from fastapi import APIRouter, Body, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Body, File, Form, Header, HTTPException, Query, Response, UploadFile
 from temporalio.service import RPCError, RPCStatusCode
 
 from enums.TaskStatus import TaskStatus
@@ -13,6 +13,8 @@ from utils.advice_store import read_advice
 from utils.annotate import annotate
 from utils.config import get_setting
 from utils.http_errors import http_errors
+from utils.idempotency import IdempotencyConflict, fingerprint_uploads, get_store
+from utils.idempotency_guard import released_on_failure
 from utils.legal_responses import (
     accepted_response,
     answer_accepted_response,
@@ -42,6 +44,7 @@ async def submit(
     project_id: str = Form(""),
     email: str = Form(""),
     supersedes: str = Form(""),
+    idempotency_key: str = Header("", alias="Idempotency-Key"),
 ) -> dict:
     """
     Accepts several PDFs, stores them and starts the legal review workflow.
@@ -67,35 +70,67 @@ async def submit(
         project = await _load_project(project_id, settings) if project_id else None
         report_email = validate_email(email) or (project.email if project else "")
 
-        bucket = settings.s3_projects if project else ""
-        # the uploads are streamed to disk one at a time, not read into memory:
-        # twenty documents at once is how an API falls over on a big submission
-        task_id, pdf_keys = await store_uploads(files, settings, project.prefix if project else "", bucket)
+        claim_store = get_store(settings.idempotency_path) if idempotency_key else None
+        claim = None
+        if claim_store:
+            fingerprint = await fingerprint_uploads(
+                files,
+                {"project_id": project_id, "email": report_email, "supersedes": supersedes},
+            )
+            try:
+                claim = await asyncio.to_thread(claim_store.claim, idempotency_key, fingerprint)
+            except IdempotencyConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            if not claim.is_new:
+                response.status_code = ACCEPTED
+                return accepted_response(claim.task_id, claim.pdf_keys, claim.pdf_bucket, claim.project_id)
 
-        client = await get_temporal_client()
-        handle = await client.start_workflow(
-            LegalReviewWorkflow.run,
-            LegalReviewInput(
-                task_id=task_id,
-                pdf_keys=pdf_keys,
-                pages_per_batch=settings.legal_pages_per_batch,
-                max_concurrent_pdfs=settings.legal_max_concurrent_pdfs,
-                human_input_timeout_seconds=settings.human_input_timeout_seconds,
-                report_email=report_email,
-                project_id=project.id if project else "",
-                project_name=project.name if project else "",
-                bucket=bucket,
-            ),
-            id=legal_workflow_id_for(task_id),
-            task_queue=settings.legal_task_queue,
-        )
+        # everything from here is undone if it fails: a claim left behind would
+        # answer the client's retry with a task id whose workflow never started,
+        # and they would poll it for ever
+        async with released_on_failure(claim_store, idempotency_key):
+            bucket = settings.s3_projects if project else ""
+            # the uploads are streamed to disk one at a time, not read into memory:
+            # twenty documents at once is how an API falls over on a big submission
+            task_id, pdf_keys = await store_uploads(
+                files, settings, project.prefix if project else "", bucket, task_id=claim.task_id if claim else None
+            )
 
-        logger.info("[task %s] started %s for %d document(s)", task_id, handle.id, len(pdf_keys))
+            client = await get_temporal_client()
+            handle = await client.start_workflow(
+                LegalReviewWorkflow.run,
+                LegalReviewInput(
+                    task_id=task_id,
+                    pdf_keys=pdf_keys,
+                    pages_per_batch=settings.legal_pages_per_batch,
+                    max_concurrent_pdfs=settings.legal_max_concurrent_pdfs,
+                    human_input_timeout_seconds=settings.human_input_timeout_seconds,
+                    report_email=report_email,
+                    project_id=project.id if project else "",
+                    project_name=project.name if project else "",
+                    bucket=bucket,
+                ),
+                id=legal_workflow_id_for(task_id),
+                task_queue=settings.legal_task_queue,
+            )
 
-        if project:
-            # recorded after the workflow starts, so a record never points at a
-            # review that was never begun
-            await asyncio.to_thread(record_review, project.id, task_id, handle.id, pdf_keys, settings, supersedes)
+            logger.info("[task %s] started %s for %d document(s)", task_id, handle.id, len(pdf_keys))
+
+            if project:
+                # recorded after the workflow starts, so a record never points at a
+                # review that was never begun
+                await asyncio.to_thread(record_review, project.id, task_id, handle.id, pdf_keys, settings, supersedes)
+
+            if claim_store:
+                # after the workflow starts, not before: a completed claim is a
+                # promise that there is something to poll
+                await asyncio.to_thread(
+                    claim_store.complete,
+                    idempotency_key,
+                    pdf_keys,
+                    bucket or settings.s3_pdf_bucket,
+                    project.id if project else "",
+                )
 
     response.status_code = ACCEPTED
     return accepted_response(task_id, pdf_keys, bucket or settings.s3_pdf_bucket, project.id if project else "")
@@ -212,3 +247,28 @@ async def respond(task_id: str, pdf_key: str = Body(..., embed=True), answer: st
         logger.info("[task %s] answer delivered for %s", task_id, pdf_key)
 
     return answer_accepted_response(task_id, pdf_key)
+
+
+@router.post("/{task_id}/cancel")
+async def cancel(task_id: str) -> dict:
+    """Requests graceful cancellation of a running legal review."""
+    with http_errors(f"canceling task {task_id}"):
+        client = await get_temporal_client()
+        handle = client.get_workflow_handle_for(LegalReviewWorkflow.run, legal_workflow_id_for(task_id))
+
+        try:
+            description = await handle.describe()
+        except RPCError as exc:
+            if exc.status == RPCStatusCode.NOT_FOUND:
+                raise HTTPException(status_code=404, detail=f"no such task: {task_id}") from exc
+            raise
+
+        status = TaskStatus.from_temporal(description.status)
+        if status is TaskStatus.COMPLETED:
+            raise HTTPException(status_code=409, detail=f"task {task_id} is already completed")
+        if status in (TaskStatus.CANCELED, TaskStatus.TERMINATED, TaskStatus.FAILED, TaskStatus.TIMED_OUT):
+            return status_response(task_id, status)
+
+        await handle.cancel()
+
+    return status_response(task_id, TaskStatus.CANCELED)

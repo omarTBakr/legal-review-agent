@@ -15,7 +15,7 @@ from exceptions.llm import (
     LLMResponseError,
     LLMTimeoutError,
 )
-from interfaces.openrouter_llm import OpenRouterLLM
+from interfaces.llm.openrouter import OpenRouterLLM
 from prompts import get_prompt
 
 PROMPT_VARS = {

@@ -4,7 +4,7 @@ Which synthesiser the service speaks with.
 Two are available and they are not equivalent: Kokoro is a single English
 voice that is hundreds of times faster than real time, Qwen3-TTS is ten
 languages at roughly real time. The service asks for "the speaker" and this
-decides, the same way `interfaces/llm_factory.py` decides which model answers
+decides, the same way `interfaces/llm/factory.py` decides which model answers
 a question in the main project.
 """
 

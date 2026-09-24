@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     legal_max_pdfs: int = Field(20, description="Most PDFs accepted in one request")
     max_upload_bytes: int = Field(25 * 1024 * 1024, description="Largest single PDF the service accepts")
     max_request_bytes: int = Field(100 * 1024 * 1024, description="Largest total upload in one request")
+    idempotency_db_path: str = Field("idempotency.sqlite3", description="SQLite database for request idempotency records")
     human_input_timeout_seconds: float = Field(3600, description="How long to wait for a human before continuing")
 
     # emailed reports; with no SMTP_HOST the review simply does not send one
@@ -127,6 +128,12 @@ class Settings(BaseSettings):
         path.mkdir(parents=True, exist_ok=True)
 
         return path
+
+    @property
+    def idempotency_path(self) -> Path:
+        """The durable local path used to claim retried submissions."""
+        path = Path(self.idempotency_db_path)
+        return path if path.is_absolute() else self.temp_root / path
 
 
 _settings_instance = None

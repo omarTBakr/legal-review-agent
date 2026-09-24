@@ -17,7 +17,8 @@ inputs:
 {
   "summary": "...",
   "key_risks": [
-    {"description": "...", "severity": "...", "location": "...", "quote": "...", "page": 1}
+    {"description": "...", "severity": "...", "location": "...", "quote": "...", "page": 1,
+     "confidence": 0.0, "category": "...", "recommended_action": "..."}
   ],
   "needs_human": false,
   "question": ""

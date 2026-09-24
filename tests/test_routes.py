@@ -49,6 +49,9 @@ class StubHandle:
             raise self._status
         return StubDescription(self._status)
 
+    async def cancel(self):
+        self._status = WorkflowExecutionStatus.CANCELED
+
 
 class StubClient:
     def __init__(self):
@@ -93,6 +96,39 @@ def test_health(client):
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_same_idempotency_key_returns_the_original_process_task(client, pdf_bytes, temporal):
+    first = client.post(
+        "/process",
+        files={"file": ("report.pdf", pdf_bytes, "application/pdf")},
+        headers={"Idempotency-Key": "process-retry"},
+    )
+    second = client.post(
+        "/process",
+        files={"file": ("report.pdf", pdf_bytes, "application/pdf")},
+        headers={"Idempotency-Key": "process-retry"},
+    )
+
+    assert first.status_code == second.status_code == 202
+    assert second.json()["task_id"] == first.json()["task_id"]
+    assert len(temporal.calls) == 1
+
+
+def test_process_idempotency_key_rejects_a_different_file(client, pdf_bytes):
+    client.post(
+        "/process",
+        files={"file": ("report.pdf", pdf_bytes, "application/pdf")},
+        headers={"Idempotency-Key": "process-conflict"},
+    )
+
+    response = client.post(
+        "/process",
+        files={"file": ("report.pdf", b"%PDF-different", "application/pdf")},
+        headers={"Idempotency-Key": "process-conflict"},
+    )
+
+    assert response.status_code == 409
 
 
 # --- POST /process, non-blocking by default -------------------------------

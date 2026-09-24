@@ -228,6 +228,7 @@ def reviewed(s3, settings):
     s3.objects[(settings.s3_projects, pdf_key)] = make_pdf(SHORT)
     s3.objects[(settings.s3_projects, advice_key(pdf_key))] = json.dumps(
         {
+            "schema_version": 2,
             "task_id": "t",
             "pdf_key": pdf_key,
             "summary": "A services agreement.",
@@ -238,6 +239,9 @@ def reviewed(s3, settings):
                     "location": "clause 6.1",
                     "quote": SHORT,
                     "page": 1,
+                    "confidence": 0.95,
+                    "category": "liability",
+                    "recommended_action": "Negotiate a liability cap.",
                     "quote_verified": True,
                 }
             ],

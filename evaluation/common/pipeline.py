@@ -20,7 +20,7 @@ import json
 from dataclasses import dataclass, field
 
 from enums.PromptName import PromptName
-from interfaces.llm_interface import LLMInterface
+from interfaces.llm.interface import LLMInterface
 from parsers.pymupdf_parser import parse_pdf_pages
 from prompts import get_prompt
 from schemas.key_risk import KeyRisk

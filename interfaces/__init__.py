@@ -8,8 +8,8 @@ from the factory; nothing outside this package should import a vendor client.
     advice = await get_llm().complete_json(prompt, pdf_key=...)
 """
 
-from interfaces.llm_factory import build_llm, get_llm, reset_llm_cache, set_llm
-from interfaces.llm_interface import LLMInterface
-from interfaces.openrouter_llm import OpenRouterLLM
+from interfaces.llm.factory import build_llm, get_llm, reset_llm_cache, set_llm
+from interfaces.llm.interface import LLMInterface
+from interfaces.llm.openrouter import OpenRouterLLM
 
 __all__ = ["LLMInterface", "OpenRouterLLM", "build_llm", "get_llm", "reset_llm_cache", "set_llm"]

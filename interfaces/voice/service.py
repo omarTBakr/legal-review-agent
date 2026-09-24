@@ -5,7 +5,7 @@ The models live in a separate process with its own dependencies (torch,
 transformers, qwen-tts) and, usually, a GPU. This is the only place that knows
 that; everything else asks `get_asr()` or `get_tts()` for "the model".
 
-Shaped like `interfaces/openrouter_llm.py`: an injectable httpx client so tests
+Shaped like `interfaces/llm/openrouter.py`: an injectable httpx client so tests
 use MockTransport instead of the network, and every failure translated at the
 boundary into the project's own exceptions.
 """
@@ -16,8 +16,8 @@ import binascii
 import httpx
 
 from exceptions.voice import SynthesisError, TranscriptionError, VoiceConfigurationError, VoiceUnavailableError
-from interfaces.asr_interface import ASRInterface
-from interfaces.tts_interface import TTSInterface
+from interfaces.voice.asr import ASRInterface
+from interfaces.voice.tts import TTSInterface
 from utils.auth import HEADER_NAME
 from utils.config import Settings
 from utils.logger import get_logger

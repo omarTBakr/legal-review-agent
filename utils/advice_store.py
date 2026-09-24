@@ -59,6 +59,9 @@ def read_advice(pdf_key: str, settings: Settings, bucket: str = "") -> LegalAdvi
     """
     bucket = bucket or settings.s3_legal_advice
     stored = json.loads(download_s3_bytes(bucket, advice_key(pdf_key)))
+    legacy = stored.get("schema_version", 1) < 2
+    if legacy:
+        stored = _upgrade_legacy(stored)
 
     advice = LegalAdvice.from_model(stored)
     advice.s3_path = f"s3://{bucket}/{advice_key(pdf_key)}"
@@ -66,7 +69,7 @@ def read_advice(pdf_key: str, settings: Settings, bucket: str = "") -> LegalAdvi
     # from_model deliberately ignores these: the model may not set them, but
     # our own stored document is where they come from
     advice.review_decision = _decision(stored)
-    advice.key_risks = _risks(advice, stored)
+    advice.key_risks = _risks(advice, stored, legacy=legacy)
 
     return advice
 
@@ -79,11 +82,29 @@ def _decision(stored: dict) -> ReviewDecision:
         return ReviewDecision.AUTO_APPROVED
 
 
-def _risks(advice: LegalAdvice, stored: dict) -> list:
+def _risks(advice: LegalAdvice, stored: dict, legacy: bool = False) -> list:
     """Restores the verification flag, which `from_model` refuses to trust."""
-    flags = [bool(raw.get("quote_verified", False)) for raw in stored.get("key_risks", [])]
+    flags = [bool(raw.get("quote_verified", False)) and not legacy for raw in stored.get("key_risks", [])]
 
     for risk, verified in zip(advice.key_risks, flags, strict=False):
         risk.quote_verified = verified
 
     return advice.key_risks
+
+
+def _upgrade_legacy(stored: dict) -> dict:
+    """Make pre-v2 advice readable without presenting it as newly verified."""
+    upgraded = dict(stored)
+    upgraded["schema_version"] = 2
+    upgraded["key_risks"] = [
+        {
+            **risk,
+            "quote": risk.get("quote") or "Legacy finding requires manual verification.",
+            "page": risk.get("page") or 1,
+            "confidence": risk.get("confidence", 0.0),
+            "category": risk.get("category") or "legacy",
+            "recommended_action": risk.get("recommended_action") or "Review manually",
+        }
+        for risk in stored.get("key_risks", [])
+    ]
+    return upgraded

@@ -1,5 +1,5 @@
 """
-`get_asr()` and `get_tts()`, the way `interfaces/llm_factory.py` provides
+`get_asr()` and `get_tts()`, the way `interfaces/llm/factory.py` provides
 `get_llm()`: a route asks for the model it needs and never names a vendor.
 
 Both halves are served by one `VoiceService` connection per provider, because
@@ -9,9 +9,9 @@ one process holds both models.
 from enums.ASRProvider import ASRProvider
 from enums.TTSProvider import TTSProvider
 from exceptions.voice import VoiceConfigurationError
-from interfaces.asr_interface import ASRInterface
-from interfaces.tts_interface import TTSInterface
-from interfaces.voice_service import VoiceService
+from interfaces.voice.asr import ASRInterface
+from interfaces.voice.service import VoiceService
+from interfaces.voice.tts import TTSInterface
 from utils.config import Settings, get_setting
 
 _asr: dict[ASRProvider, ASRInterface] = {}

@@ -30,12 +30,16 @@ def store_advice(s3, settings, pdf_key, verified=True):
                 location="clause 9",
                 quote="The Supplier's liability is unlimited.",
                 page=5,
+                confidence=0.9,
+                category="liability",
+                recommended_action="Negotiate a liability cap.",
                 quote_verified=verified,
             )
         ],
         review_decision=ReviewDecision.HUMAN_APPROVED,
     )
     document = {
+        "schema_version": 2,
         "task_id": "abc123",
         "pdf_key": pdf_key,
         "summary": advice.summary,

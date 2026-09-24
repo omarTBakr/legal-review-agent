@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, File, Form, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 
 from exceptions.voice import SynthesisError, TranscriptionError
-from interfaces.voice_factory import get_asr, get_tts
+from interfaces.voice.factory import get_asr, get_tts
 from utils.audio_store import ANSWER, QUESTION, read_timings, store_audio, store_timings
 from utils.chat_store import read_thread, save_thread
 from utils.config import get_setting

@@ -6,7 +6,7 @@ import pytest
 
 from evaluation.layer2_judge.escalation import build_queue, escalation_reasons, hedges, read_queue, should_escalate, write_queue
 from evaluation.layer2_judge.judge import JudgeVerdict, score_verdict, summarize
-from interfaces.llm_interface import LLMInterface
+from interfaces.llm.interface import LLMInterface
 
 PERFECT = {
     "correctness": 1,

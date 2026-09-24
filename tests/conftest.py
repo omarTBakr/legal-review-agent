@@ -6,8 +6,8 @@ import pymupdf
 import pytest
 from botocore.exceptions import ClientError
 
-import interfaces.llm_factory
-import interfaces.voice_factory
+import interfaces.llm.factory
+import interfaces.voice.factory
 import utils.config
 import utils.review_context
 import utils.utility
@@ -15,9 +15,9 @@ from enums.ASRProvider import ASRProvider
 from enums.LLMProvider import LLMProvider
 from enums.PromptName import PromptName
 from enums.TTSProvider import TTSProvider
-from interfaces.asr_interface import ASRInterface
-from interfaces.llm_interface import LLMInterface
-from interfaces.tts_interface import TTSInterface
+from interfaces.llm.interface import LLMInterface
+from interfaces.voice.asr import ASRInterface
+from interfaces.voice.tts import TTSInterface
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +40,10 @@ def settings(tmp_path, monkeypatch):
         "TEMP_PD_DIR": str(tmp_path),
         "TEMP_PDF_FOLDER": "TEMP_PDF",
         "TEMP_MD_FOLDER": "TEMP_MD",
+        # pinned inside tmp_path: it otherwise resolves against the real scratch
+        # root, and a test that loses the fake environment writes a database
+        # into the repository
+        "IDEMPOTENCY_DB_PATH": str(tmp_path / "idempotency.sqlite3"),
         "API_HOST": "127.0.0.1",
         "API_PORT": "9999",
         "LLM_PROVIDER": "openrouter",
@@ -59,9 +63,9 @@ def settings(tmp_path, monkeypatch):
     # these modules cache singletons, so clear them between tests
     monkeypatch.setattr(utils.config, "_settings_instance", None)
     monkeypatch.setattr(utils.utility, "_s3_client", None)
-    monkeypatch.setattr(interfaces.llm_factory, "_instances", {})
-    monkeypatch.setattr(interfaces.voice_factory, "_asr", {})
-    monkeypatch.setattr(interfaces.voice_factory, "_tts", {})
+    monkeypatch.setattr(interfaces.llm.factory, "_instances", {})
+    monkeypatch.setattr(interfaces.voice.factory, "_asr", {})
+    monkeypatch.setattr(interfaces.voice.factory, "_tts", {})
     utils.review_context.clear_cache()
 
     return utils.config.get_setting()
@@ -163,7 +167,16 @@ class FakeLLM(LLMInterface):
 DEFAULT_ADVICE = {
     "summary": "A short services agreement.",
     "key_risks": [
-        {"description": "Unlimited liability", "severity": "high", "location": "clause 9"},
+        {
+            "description": "Unlimited liability",
+            "severity": "high",
+            "location": "clause 9",
+            "quote": "The Supplier's liability is unlimited.",
+            "page": 1,
+            "confidence": 0.9,
+            "category": "liability",
+            "recommended_action": "Negotiate a liability cap.",
+        },
     ],
     "needs_human": False,
     "question": "",
@@ -174,7 +187,7 @@ DEFAULT_ADVICE = {
 def llm(monkeypatch):
     """Installs a FakeLLM for every provider the factory might be asked for."""
     fake = FakeLLM()
-    monkeypatch.setattr(interfaces.llm_factory, "_instances", {provider: fake for provider in LLMProvider})
+    monkeypatch.setattr(interfaces.llm.factory, "_instances", {provider: fake for provider in LLMProvider})
     return fake
 
 
@@ -211,8 +224,8 @@ class FakeVoice(ASRInterface, TTSInterface):
 def voice(monkeypatch):
     """Installs a FakeVoice for every ASR and TTS provider."""
     fake = FakeVoice()
-    monkeypatch.setattr(interfaces.voice_factory, "_asr", {provider: fake for provider in ASRProvider})
-    monkeypatch.setattr(interfaces.voice_factory, "_tts", {provider: fake for provider in TTSProvider})
+    monkeypatch.setattr(interfaces.voice.factory, "_asr", {provider: fake for provider in ASRProvider})
+    monkeypatch.setattr(interfaces.voice.factory, "_tts", {provider: fake for provider in TTSProvider})
     return fake
 
 

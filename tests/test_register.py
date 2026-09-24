@@ -29,6 +29,7 @@ def client(s3):
 def store(s3, settings, pdf_key, risks):
     """Finished advice in the bucket, the way upload_advice would leave it."""
     document = {
+        "schema_version": 2,
         "task_id": "t",
         "pdf_key": pdf_key,
         "summary": "A contract.",
@@ -39,6 +40,9 @@ def store(s3, settings, pdf_key, risks):
                 "location": "",
                 "quote": quote,
                 "page": 1,
+                "confidence": 0.9,
+                "category": "contract",
+                "recommended_action": "Review this clause.",
                 "quote_verified": verified,
             }
             for description, severity, quote, verified in risks

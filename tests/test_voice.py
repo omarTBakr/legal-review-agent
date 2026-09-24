@@ -13,8 +13,8 @@ from exceptions.voice import (
     VoiceConfigurationError,
     VoiceUnavailableError,
 )
-from interfaces.voice_factory import get_asr, get_tts
-from interfaces.voice_service import VoiceService
+from interfaces.voice.factory import get_asr, get_tts
+from interfaces.voice.service import VoiceService
 from main import app
 
 WAV = b"RIFF$\x00\x00\x00WAVEfmt "

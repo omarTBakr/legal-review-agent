@@ -20,6 +20,7 @@ async def upload_advice(payload: UploadAdviceInput) -> UploadAdviceOutput:
     activity.logger.info("[task %s] storing advice -> %s/%s", payload.task_id, bucket, key)
 
     document = {
+        "schema_version": 2,
         "task_id": payload.task_id,
         "pdf_key": payload.pdf_key,
         "summary": advice.summary,

@@ -15,7 +15,7 @@ import pytest
 
 from enums.PromptName import PromptName
 from exceptions.llm import LLMError, LLMResponseError, LLMTimeoutError
-from interfaces.ollama_llm import OllamaLLM
+from interfaces.llm.ollama import OllamaLLM
 from prompts.prompt import Prompt
 from utils.config import get_setting
 

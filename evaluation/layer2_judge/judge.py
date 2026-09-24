@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 from evaluation.common.prompts import JUDGE_PROMPT
 from evaluation.common.retry import with_backoff
-from interfaces.llm_interface import LLMInterface
+from interfaces.llm.interface import LLMInterface
 from schemas.key_risk import KeyRisk
 from utils.logger import get_logger
 

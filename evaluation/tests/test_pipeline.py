@@ -22,10 +22,27 @@ PAGE_TWO = "6.1 The Client's aggregate liability under this Agreement is unlimit
 
 
 def advice(quote: str, severity: str = "critical", page: int = 2) -> dict:
+    """
+    A model reply in the shape the product now demands.
+
+    KeyRisk.from_model requires a category, a recommended action, a confidence
+    and a page, so a fixture that omits them is not a weak fixture — it is a
+    reply the pipeline would reject, and the test would be measuring the
+    rejection rather than the thing it names.
+    """
     return {
         "summary": "A one-sided services agreement.",
         "key_risks": [
-            {"description": "Unlimited client liability", "severity": severity, "location": "6.1", "quote": quote, "page": page}
+            {
+                "description": "Unlimited client liability",
+                "severity": severity,
+                "location": "6.1",
+                "quote": quote,
+                "page": page,
+                "confidence": 0.9,
+                "category": "liability",
+                "recommended_action": "Negotiate a cap at the fees paid in the preceding 12 months.",
+            }
         ],
         "needs_human": False,
         "question": "",
@@ -151,7 +168,20 @@ async def test_a_result_survives_a_round_trip_through_the_results_file(llm):
 
 def test_verification_is_restored_from_the_record_not_recomputed():
     """Re-deriving it without the batch it came from would be checking a different thing."""
-    risks = risks_from_dicts([{"description": "d", "severity": "high", "quote": "q", "quote_verified": True}])
+    risks = risks_from_dicts(
+        [
+            {
+                "description": "d",
+                "severity": "high",
+                "quote": "q",
+                "page": 1,
+                "confidence": 0.8,
+                "category": "liability",
+                "recommended_action": "cap it",
+                "quote_verified": True,
+            }
+        ]
+    )
 
     assert risks[0].quote_verified is True
 
@@ -200,7 +230,7 @@ def test_a_local_run_is_metered_and_named_correctly(settings, monkeypatch):
     import evaluation.config
     import utils.config
     from evaluation.common.models import reviewer_model, reviewer_setting
-    from interfaces.ollama_llm import OllamaLLM
+    from interfaces.llm.ollama import OllamaLLM
 
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setattr(utils.config, "_settings_instance", None)
@@ -257,8 +287,8 @@ def test_a_hosted_reviewer_can_be_graded_by_a_local_judge(settings):
     The point of a per-level provider: the system under test stays where the
     product runs, and the instrument measuring it costs nothing.
     """
-    from interfaces.ollama_llm import OllamaLLM
-    from interfaces.openrouter_llm import OpenRouterLLM
+    from interfaces.llm.ollama import OllamaLLM
+    from interfaces.llm.openrouter import OpenRouterLLM
 
     meter = TokenMeter()
 

@@ -38,12 +38,9 @@ class LegalAdvice:
         retries: the model did not follow the format and asking again is the
         right move.
 
-        **One malformed risk inside an otherwise good reply is dropped, not
-        fatal.** A smaller model will occasionally return a risk with an empty
-        severity, and failing the whole document over it throws away every other
-        risk in the contract — a 25-contract sweep on gemma4 lost a complete
-        review that way. Retrying does not reliably help either, because the
-        reply is not deterministic. The count is kept so the loss is visible.
+        Every returned risk must satisfy the complete evidence and review
+        contract. A malformed risk fails the response so the activity retry
+        policy can ask the model again rather than silently losing a finding.
         """
         if not isinstance(raw, dict):
             raise ValueError(f"advice must be an object, got {type(raw).__name__}")
@@ -61,22 +58,14 @@ class LegalAdvice:
         if needs_human and not question:
             raise ValueError("needs_human is set but no question was asked")
 
-        parsed, malformed = [], 0
-        for risk in risks:
-            try:
-                parsed.append(KeyRisk.from_model(risk))
-            except ValueError as exc:
-                # named in the log, because a risk being dropped is a fact about
-                # the review and somebody may have to go and look at the clause
-                logger.warning("dropping a risk that could not be read (%s): %s", exc, str(risk)[:160])
-                malformed += 1
+        parsed = [KeyRisk.from_model(risk) for risk in risks]
 
         return cls(
             summary=summary,
             key_risks=parsed,
             needs_human=needs_human,
             question=question,
-            malformed_risks=malformed,
+            malformed_risks=0,
         )
 
     @property

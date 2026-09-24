@@ -11,6 +11,8 @@ risk the answer makes worse should have its severity raised. Keep each remaining
 never rewrite a quote, because each one is checked against the document.
 
 Reply with a single JSON object and nothing else, in the same shape as before. \
+Keep confidence, category, recommended_action, quote and page for every \
+remaining risk. \
 Set "needs_human" to false and leave "question" empty: the question has been \
 answered."""
 

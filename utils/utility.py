@@ -152,7 +152,7 @@ class RunArtifacts(NamedTuple):
     local_pdf: Path
 
 
-def build_run_artifacts(filename: str, settings: Settings, prefix: str = "") -> RunArtifacts:
+def build_run_artifacts(filename: str, settings: Settings, prefix: str = "", run_id: str | None = None) -> RunArtifacts:
     """
     Derives the object keys and the local PDF path for one run.
 
@@ -165,7 +165,7 @@ def build_run_artifacts(filename: str, settings: Settings, prefix: str = "") -> 
     disk.
     """
     stem = Path(filename).stem or "document"
-    run_id = uuid.uuid4().hex[:8]
+    run_id = run_id or uuid.uuid4().hex[:8]
     name = f"{stem}-{run_id}"
     pdf_key = f"{prefix}{name}.pdf"
     md_key = f"{prefix}{name}.md"

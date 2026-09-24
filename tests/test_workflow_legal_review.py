@@ -152,7 +152,18 @@ async def test_more_documents_than_the_cap_still_all_finish(worker, s3, settings
 
 NEEDS_HUMAN = {
     "summary": "An agreement with an open question.",
-    "key_risks": [{"description": "Governing law unstated", "severity": "high", "location": "clause 1"}],
+    "key_risks": [
+        {
+            "description": "Governing law unstated",
+            "severity": "high",
+            "location": "clause 1",
+            "quote": "Clause 1. Unlimited liability.",
+            "page": 1,
+            "confidence": 0.7,
+            "category": "governing law",
+            "recommended_action": "Confirm the governing jurisdiction.",
+        }
+    ],
     "needs_human": True,
     "question": "Which jurisdiction governs this contract?",
 }

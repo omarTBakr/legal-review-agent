@@ -23,6 +23,9 @@ Reply with a single JSON object and nothing else:
       "location": "clause or page reference from the excerpt",
       "quote": "the sentence or clause the risk rests on, copied word for word",
       "page": 12
+      "confidence": 0.0,
+      "category": "liability | indemnity | termination | ...",
+      "recommended_action": "what the client should negotiate or verify"
     }
   ],
   "needs_human": false,
@@ -36,7 +39,9 @@ Every risk needs a quote: one to three sentences copied exactly from the \
 excerpt, with no paraphrasing, no ellipses and no text from outside it. The \
 quote is checked against the document, and a risk whose quote cannot be found \
 is flagged as unverified. "page" is the number from the marker of the page the \
-quote is on.
+quote is on. Confidence is a number from 0 to 1 reflecting how strongly the \
+excerpt supports the finding. Category and recommended_action must never be \
+empty.
 
 Set "needs_human" to true and put one specific question in "question" only when \
 an answer would change your advice. Do not ask for confirmation of something you \

@@ -3,7 +3,7 @@
 import pytest
 
 from exceptions.llm import LLMResponseError
-from interfaces.llm_interface import LLMInterface
+from interfaces.llm.interface import LLMInterface
 
 parse = LLMInterface.parse_json_object
 
