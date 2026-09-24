@@ -34,3 +34,12 @@ repos:
         language: system
         pass_filenames: false
         types: [python]
+
+      # the hand-maintained contents drifted: four sections and three endpoints
+      # were in the document and not in its table of contents
+      - id: readme-contents
+        name: README contents are up to date
+        entry: uv run python scripts/toc.py --check
+        language: system
+        pass_filenames: false
+        files: ^README\.md$
