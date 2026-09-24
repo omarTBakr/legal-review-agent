@@ -74,6 +74,7 @@ worker, and a browser UI served by the API drives the legal review.
   - [Errors](#errors)
   - [Task ids](#task-ids)
 - [Authentication](#authentication)
+- [Choosing a provider](#choosing-a-provider)
 - [Running on a local model](#running-on-a-local-model)
 - [Tests](#tests)
 - [Evaluating the review](#evaluating-the-review)
@@ -737,7 +738,10 @@ cp .env.example .env
 | `OPENROUTER_API_KEY` | OpenRouter API key, needed by the legal review worker |
 | `OPENROUTER_MODEL` | OpenRouter model id the legal review uses |
 | `OPENROUTER_BASE_URL` | OpenRouter API base URL (default `https://openrouter.ai/api/v1`) |
-| `LLM_PROVIDER` | `openrouter` (hosted) or `ollama` (a model on this machine) |
+| `LLM_PROVIDER` | `openrouter`, `nvidia` (both hosted) or `ollama` (a model on this machine) |
+| `NVIDIA_API_KEY` | NVIDIA API key (`nvapi-…`), for `LLM_PROVIDER=nvidia` |
+| `NVIDIA_BASE_URL` | NVIDIA API base URL (default `https://integrate.api.nvidia.com/v1`) |
+| `NVIDIA_MODEL` | Which NVIDIA-hosted model answers |
 | `EVAL_JUDGE_PROVIDER` / `EVAL_ADJUDICATOR_PROVIDER` | Override the provider for one evaluation layer, so a hosted reviewer can be graded by a local model for nothing |
 | `OLLAMA_BASE_URL` | Local Ollama server (default `http://localhost:11434`) |
 | `OLLAMA_MODEL` | Which `ollama list` model answers (default `gemma4:e4b`) |
@@ -1287,6 +1291,27 @@ curl -H "X-API-Key: $API_KEY" http://localhost:8000/projects
 
 The voice service checks the same key, because it holds no documents but will
 run two models on a GPU for anyone who can reach the port.
+
+## Choosing a provider
+
+`LLM_PROVIDER` picks where the reviewer runs. All three speak the same
+interface, so nothing above `interfaces/llm/` knows the difference:
+
+| Provider | Where it runs | What it costs |
+| --- | --- | --- |
+| `openrouter` | hosted, many vendors behind one key | per token, and it reserves credit per request in flight |
+| `nvidia` | hosted, `integrate.api.nvidia.com` | free tier, no per-call billing |
+| `ollama` | this machine | nothing, and it is slower |
+
+OpenRouter and NVIDIA share `OpenAICompatibleLLM`, because they speak the same
+protocol. The only difference worth encoding is that OpenRouter has a 402 for
+credits and NVIDIA does not, so its advice is not inherited where it would be
+wrong.
+
+**Not every hosted model can do this job.** `z-ai/glm-5.3` returns a 504 from
+NVIDIA's own gateway on a single 4,400-character batch — the smallest real one
+there is — because it reasons at length before answering. Time a candidate on
+one batch before pointing a sweep at it.
 
 ## Running on a local model
 
