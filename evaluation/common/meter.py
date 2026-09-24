@@ -19,12 +19,20 @@ from dataclasses import dataclass, field
 import httpx
 
 from enums.LLMProvider import LLMProvider
+from interfaces.llm.nvidia import NvidiaLLM
 from interfaces.llm.ollama import OllamaLLM
 from interfaces.llm.openrouter import OpenRouterLLM
 from utils.config import Settings
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# which settings field each provider's model id lives in
+MODEL_FIELD = {
+    LLMProvider.OPENROUTER: "openrouter_model",
+    LLMProvider.OLLAMA: "ollama_model",
+    LLMProvider.NVIDIA: "nvidia_model",
+}
 
 PRICING_URL = "https://openrouter.ai/api/v1/models"
 
@@ -94,10 +102,14 @@ class TokenMeter:
 
     def client(self, settings: Settings) -> httpx.AsyncClient:
         """An OpenRouter client that reports to this meter."""
+        return self.hosted_client(settings, settings.openrouter_base_url, settings.openrouter_api_key)
+
+    def hosted_client(self, settings: Settings, base_url: str, api_key: str) -> httpx.AsyncClient:
+        """A client for any hosted OpenAI-compatible endpoint, reporting here."""
         return httpx.AsyncClient(
-            base_url=settings.openrouter_base_url,
+            base_url=base_url,
             timeout=settings.llm_timeout_seconds,
-            headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
+            headers={"Authorization": f"Bearer {api_key}"},
             event_hooks={"response": [self._hook()]},
         )
 
@@ -134,11 +146,12 @@ class TokenMeter:
         under its own names, and they price at nothing, which is what they cost.
         """
         chosen = LLMProvider.parse(provider or settings.llm_provider)
-        local = chosen is LLMProvider.OLLAMA
 
         overrides = {"llm_provider": chosen.value}
         if model:
-            overrides["ollama_model" if local else "openrouter_model"] = model
+            # the override has to land on the field the chosen provider reads,
+            # or asking for a judge silently leaves the reviewer's model in place
+            overrides[MODEL_FIELD[chosen]] = model
         if temperature is not None:
             overrides["llm_temperature"] = temperature
         if max_tokens:
@@ -146,8 +159,11 @@ class TokenMeter:
 
         scoped = settings.model_copy(update=overrides)
 
-        if local:
+        if chosen is LLMProvider.OLLAMA:
             return OllamaLLM(scoped, client=self.ollama_client(scoped))
+
+        if chosen is LLMProvider.NVIDIA:
+            return NvidiaLLM(scoped, client=self.hosted_client(scoped, scoped.nvidia_base_url, scoped.nvidia_api_key))
 
         return OpenRouterLLM(scoped, client=self.client(scoped))
 

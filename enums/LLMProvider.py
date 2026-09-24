@@ -6,6 +6,7 @@ class LLMProvider(Enum):
 
     OPENROUTER = "openrouter"
     OLLAMA = "ollama"
+    NVIDIA = "nvidia"
 
     @classmethod
     def parse(cls, value: str) -> "LLMProvider":

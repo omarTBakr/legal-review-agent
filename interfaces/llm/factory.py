@@ -1,6 +1,7 @@
 from enums.LLMProvider import LLMProvider
 from exceptions.llm import LLMConfigurationError
 from interfaces.llm.interface import LLMInterface
+from interfaces.llm.nvidia import NvidiaLLM
 from interfaces.llm.ollama import OllamaLLM
 from interfaces.llm.openrouter import OpenRouterLLM
 from utils.config import Settings, get_setting
@@ -15,6 +16,9 @@ def build_llm(provider: LLMProvider, settings: Settings) -> LLMInterface:
 
     if provider is LLMProvider.OLLAMA:
         return OllamaLLM(settings)
+
+    if provider is LLMProvider.NVIDIA:
+        return NvidiaLLM(settings)
 
     # a provider added to the enum and not here should fail loudly rather than
     # silently returning the wrong client

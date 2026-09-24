@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     openrouter_model: str = Field("deepseek/deepseek-v4.1-flash", description="OpenRouter model id")
     openrouter_base_url: str = Field("https://openrouter.ai/api/v1", description="OpenRouter API base URL")
 
+    # NVIDIA's hosted models, OpenAI-compatible. LLM_PROVIDER=nvidia
+    nvidia_api_key: str = Field("", description="NVIDIA API key (nvapi-...)")
+    nvidia_base_url: str = Field("https://integrate.api.nvidia.com/v1", description="NVIDIA API base URL")
+    nvidia_model: str = Field("z-ai/glm-5.3", description="Which NVIDIA-hosted model answers")
+
     # a model on this machine: free per call, slower, and weaker. LLM_PROVIDER=ollama
     ollama_base_url: str = Field("http://localhost:11434", description="Base URL of the local Ollama server")
     ollama_model: str = Field("gemma4:e4b", description="Which `ollama list` model answers")
