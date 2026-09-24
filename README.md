@@ -23,6 +23,7 @@ worker, and a browser UI served by the API drives the legal review.
 
 ## Contents
 
+- [Demo](#demo)
 - [Screenshots](#screenshots)
   - [A finished review](#a-finished-review)
   - [The risk register](#the-risk-register)
@@ -86,14 +87,25 @@ worker, and a browser UI served by the API drives the legal review.
   - [Persistent scratch space](#persistent-scratch-space)
 - [License](#license)
 
-## Screenshots
+## Demo
 
-One real use case, end to end: upload a contract, watch the review run, read
-the risks, then ask about them. Nothing here is staged — it is a recording of an
-actual review, which took about twenty seconds on a local model running on a
-laptop GPU.
+One real use case, end to end: upload a contract, watch the review run, read the
+risks, then ask about them.
 
 ![Uploading an NDA, the review running, the eight risks it found, and a question answered with clause and page citations](images/walkthrough.gif)
+
+Nothing here is staged. It is a recording of an actual review — a real PDF
+uploaded through the browser, a real `LegalReviewWorkflow` on a real Temporal
+server — and the eight risks are what the model found, not a fixture. It ran on
+`gemma4:e4b` through Ollama on a laptop GPU, took about twenty seconds end to
+end, and cost nothing.
+
+The question at the end is answered from the stored advice and the document
+text, with the clause and page it rests on printed underneath.
+
+## Screenshots
+
+Each of the five views in its own right.
 
 ### A finished review
 
