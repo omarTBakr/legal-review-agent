@@ -22,6 +22,13 @@ services:
       TEMPORAL_HOST: temporal:7233
       # the container is the worker, so the API must not start a second one
       RUN_WORKER_IN_API: "false"
+      # this worker runs analyze_batch, so it is the one that calls the model.
+      # A local one listens on the *host*, which is not this container's
+      # localhost; ignored when LLM_PROVIDER points at a hosted API.
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    extra_hosts:
+      # what makes host.docker.internal resolve on Linux
+      - "host.docker.internal:host-gateway"
     volumes:
       # survives `docker rm` and `compose down`; the PDFs and markdown written
       # by the activities outlive any single container
