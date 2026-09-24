@@ -24,13 +24,6 @@ worker, and a browser UI served by the API drives the legal review.
 ## Contents
 
 - [Demo](#demo)
-- [Screenshots](#screenshots)
-  - [A finished review](#a-finished-review)
-  - [The risk register](#the-risk-register)
-  - [What changed between two rounds](#what-changed-between-two-rounds)
-  - [Asking about the review, by voice](#asking-about-the-review-by-voice)
-  - [The contract, marked up](#the-contract-marked-up)
-  - [Temporal](#temporal)
 - [The complete workflow](#the-complete-workflow)
   - [What you can do with a finished review](#what-you-can-do-with-a-finished-review)
   - [The same thing as a script](#the-same-thing-as-a-script)
@@ -90,79 +83,23 @@ worker, and a browser UI served by the API drives the legal review.
 
 ## Demo
 
-One real use case, end to end: upload a contract, watch the review run, read the
-risks, then ask about them.
+One real use case, end to end: upload a contract into a project, follow the
+workflow on the Temporal server, read the risks, take the JSON and the
+marked-up PDF, then ask about what was found.
 
-![Uploading an NDA, the review running, the eight risks it found, and a question answered with clause and page citations](images/walkthrough.gif)
+![An NDA uploaded into a project, its LegalReviewWorkflow running on Temporal, the five risks found, the JSON returned, the same clauses highlighted in the PDF, and a question answered with page citations](images/walkthrough.gif)
 
 Nothing here is staged. It is a recording of an actual review — a real PDF
 uploaded through the browser, a real `LegalReviewWorkflow` on a real Temporal
-server — and the eight risks are what the model found, not a fixture. It ran on
+server — and the five risks are what the model found, not a fixture. It ran on
 `gemma4:e4b` through Ollama on a laptop GPU, took about twenty seconds end to
 end, and cost nothing.
 
-The question at the end is answered from the stored advice and the document
-text, with the clause and page it rests on printed underneath.
-
-## Screenshots
-
-Each of the five views in its own right.
-
-### A finished review
-
-The totals and risks by severity, then one card per document: its review
-decision, summary, and every risk with the clause it rests on, the page, and the
-passage quoted word for word. `Download marked-up PDF` hands back the contract
-itself.
-
-![A completed review showing risks with their quotes and pages](images/review.jpg)
-
-### The risk register
-
-Every risk across the whole project, worst first, each linking back to the
-review it came from. 43 risks over 5 documents here, filtered to a severity
-floor without a round trip.
-
-![The project risk register, 43 risks across 5 documents, filtered by severity](images/register.jpg)
-
-### What changed between two rounds
-
-Round two against round one: what was fixed, what is new, and what got worse,
-with the previous wording kept beside the new. No model call — it is quote
-matching, so it costs nothing and says the same thing every time.
-
-![A comparison of two rounds of an NDA, showing new and worsened risks](images/compare.jpg)
-
-### Asking about the review, by voice
-
-The chat panel reads the review and the documents back. `Read answers` speaks
-every answer in the thread, highlighting each word as it is said.
-
-![The chat panel answering a question about the NDA, with the Read answers control](images/chat.jpg)
-
-### The contract, marked up
-
-The original PDF with each verified quote highlighted in its severity's colour
-and the finding attached as a note. Only verified quotes are highlighted;
-anything the evidence check could not place goes on an appendix page rather than
-being dropped.
-
-![A page of the reviewed contract with the liability and IP clauses highlighted](images/annotated.png)
-
-### Temporal
-
-Finished reviews in the Temporal web UI, one `legal-review-<task_id>` workflow
-per review:
-
-![The Temporal web UI listing completed legal review workflows](images/temporal_ui.png)
-
-The timeline of one review: three documents downloaded and split side by side,
-an `analyze_batch` call per page batch (one of them retried), a `merge_advice`
-per document, and then one document waiting on a human, the one-hour timer,
-until the `human_response` signal arrives and `human_followup` revises its
-advice before `upload_advice` stores it.
-
-![The Temporal timeline of a legal review, including the wait for a human answer](images/temporal_workflow.png)
+Every risk carries the quote it rests on, and every quote was checked back
+against the page before it was shown — which is what lets the same passages be
+highlighted in the marked-up PDF. The question at the end is answered from the
+stored advice and the document text, with the page it rests on printed
+alongside.
 
 ## The complete workflow
 
@@ -675,7 +612,7 @@ legal-review-agent/
 │   ├── asr.py, tts.py, audio.py    the models, and the WAV handling around them
 │   ├── quantization.py             4-bit and 8-bit loading, with a fallback
 │   └── Docker/                     Dockerfile and compose, with the GPU passed through
-├── images/                         screenshots used in this README
+├── images/                         the walkthrough recording used in this README
 ├── .github/workflows/lint.yml      CI: black, ruff and pytest on every push
 ├── .pre-commit-config.yaml         the same checks before every commit
 ├── .env.example                    every setting, with its default
