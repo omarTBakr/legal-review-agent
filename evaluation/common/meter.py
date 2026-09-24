@@ -105,7 +105,7 @@ class TokenMeter:
         """A local Ollama client that reports to this meter."""
         return httpx.AsyncClient(
             base_url=settings.ollama_base_url,
-            timeout=httpx.Timeout(settings.llm_timeout_seconds, connect=10.0),
+            timeout=httpx.Timeout(settings.ollama_timeout_seconds, connect=10.0),
             event_hooks={"response": [self._hook()]},
         )
 

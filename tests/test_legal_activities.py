@@ -202,12 +202,43 @@ async def test_analyze_batch_rejects_advice_with_no_summary(env, llm):
         )
 
 
-async def test_analyze_batch_rejects_an_unknown_severity(env, llm):
-    """A mislabelled risk is worse than a failure the workflow can retry."""
+async def test_analyze_batch_drops_a_risk_with_an_unknown_severity(env, llm):
+    """
+    A mislabelled risk is dropped; the rest of the document survives.
+
+    It used to fail the whole batch, on the reasoning that a mislabelled risk is
+    worse than a failure the workflow can retry. That is right about the risk
+    and wrong about the document: a 25-contract sweep on a local model lost a
+    complete review to one risk with an empty severity, and the reply is not
+    deterministic, so retrying does not reliably help. The count makes the loss
+    visible instead.
+    """
     llm.script(
         PromptName.LEGAL_ADVICE,
-        {"summary": "ok", "key_risks": [{"description": "d", "severity": "apocalyptic"}]},
+        {
+            "summary": "ok",
+            "key_risks": [
+                {"description": "unlimited liability", "severity": "critical", "quote": "x"},
+                {"description": "d", "severity": "apocalyptic"},
+            ],
+        },
     )
+
+    result = await env.run(
+        analyze_batch,
+        AnalyzeBatchInput(task_id="t1", pdf_key="contract.pdf", batch=BATCH, batch_count=1),
+    )
+
+    assert [risk.description for risk in result.advice.key_risks] == ["unlimited liability"]
+    assert result.advice.malformed_risks == 1
+
+
+async def test_analyze_batch_still_rejects_a_reply_of_the_wrong_shape(env, llm):
+    """
+    The line: a bad *risk* is dropped, a bad *reply* is retried. No summary
+    means the model did not follow the format, and asking again is the move.
+    """
+    llm.script(PromptName.LEGAL_ADVICE, {"key_risks": []})
 
     with pytest.raises(LLMResponseError):
         await env.run(

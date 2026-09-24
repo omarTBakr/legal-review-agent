@@ -52,14 +52,17 @@ class OllamaLLM(LLMInterface):
     def model(self) -> str:
         return self._settings.ollama_model
 
+    @property
+    def _timeout(self) -> float:
+        return self._settings.ollama_timeout_seconds
+
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
                 base_url=self._settings.ollama_base_url,
-                # a local model is slower than a hosted one, not faster: a long
-                # batch on a consumer GPU takes minutes, and the default read
-                # timeout would give up on a reply that was arriving
-                timeout=httpx.Timeout(self._settings.llm_timeout_seconds, connect=10.0),
+                # its own timeout: a local model is slower than a hosted one,
+                # not faster, and LLM_TIMEOUT_SECONDS is tuned for an API
+                timeout=httpx.Timeout(self._timeout, connect=10.0),
             )
         return self._client
 
@@ -95,7 +98,7 @@ class OllamaLLM(LLMInterface):
         try:
             response = await self._http().post(CHAT_PATH, json=payload)
         except httpx.TimeoutException as exc:
-            raise LLMTimeoutError(f"{self.model} did not answer within {self._settings.llm_timeout_seconds}s") from exc
+            raise LLMTimeoutError(f"{self.model} did not answer within {self._timeout}s") from exc
         except httpx.HTTPError as exc:
             raise LLMError(f"could not reach Ollama at {self._settings.ollama_base_url}: {exc}") from exc
 
@@ -154,7 +157,7 @@ class OllamaLLM(LLMInterface):
                     if chunk:
                         yield chunk
         except httpx.TimeoutException as exc:
-            raise LLMTimeoutError(f"{self.model} did not answer within {self._settings.llm_timeout_seconds}s") from exc
+            raise LLMTimeoutError(f"{self.model} did not answer within {self._timeout}s") from exc
         except httpx.HTTPError as exc:
             raise LLMError(f"could not reach Ollama at {self._settings.ollama_base_url}: {exc}") from exc
 

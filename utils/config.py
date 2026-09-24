@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # measured here: the same answer took 26.1s thinking and 0.5s without, and
     # on a long prompt the reasoning ate the whole reply budget
     ollama_think: bool = Field(False, description="Let a reasoning model think before answering")
+    # its own timeout, not LLM_TIMEOUT_SECONDS: a hosted API answers a long
+    # contract in under a minute and an 8B on a laptop takes several, so one
+    # number for both gives up on replies that were still arriving. Two of 25
+    # contracts were lost that way before this existed.
+    ollama_timeout_seconds: float = Field(900, description="Per-call timeout for a local model")
 
     # legal advice pipeline
     s3_legal_advice: str = Field("legaladvice", description="Bucket the advice JSON lands in")
