@@ -32,6 +32,7 @@ worker, and a browser UI served by the API drives the legal review.
 ## Contents
 
 - [Demo](#demo)
+- [Overall flow](#overall-flow)
 - [The complete workflow](#the-complete-workflow)
   - [What you can do with a finished review](#what-you-can-do-with-a-finished-review)
   - [The same thing as a script](#the-same-thing-as-a-script)
@@ -116,6 +117,49 @@ the model are fast-forwarded and labelled. In order:
 5. **Asking** — a typed question and a spoken one, answered from the advice and the pages, with the pages it read.
 6. **Round two** — a revised draft filed as a new round of the earlier review, then **compared**: what was fixed, what is new, what got worse.
 7. **Temporal** — the same review as a workflow: its timeline, the human-answer signals and every activity in the event history.
+
+## Overall flow
+
+The whole path in one picture: from uploading a PDF, through the review on
+Temporal (and the question the model may put to a human), to reading the risks
+and chatting with the model about them. The step-by-step version, with every
+endpoint, is [The complete workflow](#the-complete-workflow).
+
+```mermaid
+flowchart TD
+    start(["Upload PDFs<br/>browser UI or POST /legal"]) --> intake["API checks each file<br/>is a PDF and within the size limit"]
+    intake --> store[("Object storage<br/>PDFs stored by key")]
+    intake --> run["Start LegalReviewWorkflow on Temporal<br/>answer 202 with a task id"]
+
+    subgraph review["Legal review worker, one run per document"]
+        direction TB
+        split["Download the PDF and split it into pages"] --> batch["Analyse each batch of pages<br/>the model returns risks, each with a quote"]
+        batch --> verify["Check every quote against the page text"]
+        verify --> merge["Merge the batches into one review<br/>summary and risks, worst first"]
+        merge --> need{"Does the model need a fact<br/>only the client knows?"}
+        need -- "yes" --> ask["Pause and ask the human<br/>question shown in the UI"]
+        ask --> answer["Answer by typing or by voice<br/>sent as a Temporal signal"]
+        answer --> revise["Revise the review<br/>with the answer"]
+        need -- "no" --> save
+        revise --> save["Store the advice as JSON"]
+        ask -. "no answer in time" .-> unreviewed["Keep the draft and flag it unreviewed"] --> save
+    end
+
+    run --> split
+    save --> advice[("Advice stored per document")]
+    save --> mail["Email the report<br/>if an address was given"]
+
+    advice --> read["Read the results<br/>risks by severity, each quoting its passage"]
+    read --> export["Take the JSON<br/>or the PDF marked up with the quotes"]
+    read --> project["Project views<br/>risk register, and compare a revised round two"]
+    read --> chat["Chat about the risks"]
+
+    chat --> q{"Typed or spoken?"}
+    q -- "typed" --> ctx
+    q -- "spoken" --> asr["Speech to text"] --> ctx
+    ctx["Answer from the stored advice<br/>and the document pages"] --> reply["Reply with the pages it read"]
+    reply --> tts["Read the answer aloud<br/>each word highlighted as it is said"]
+```
 
 ## The complete workflow
 
@@ -665,7 +709,7 @@ Copy the example environment file and fill in your credentials:
 cp .env.example .env
 ```
 
-`.env` is gitignored — keep your real keys out of version control.
+`.env` is gitignored — keep your real keys out of version control. The same goes for SSH and AWS key files (`private_ssh_aws/`, `aws/`, `*.pem`); [`.example/`](.example/) holds placeholders to copy from.
 
 ### Environment variables
 

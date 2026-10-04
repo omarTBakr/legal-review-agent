@@ -25,3 +25,19 @@ setup/samples-server/
 # model output of every evaluation run
 evaluation/data/
 evaluation/results/
+
+# Secrets and local configuration. Only the placeholders in .example/ and
+# .env.example are committed; copy them and fill in the real values.
+/private_ssh_aws/
+/aws/
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+.env.*
+!.env.example
+.claude/settings.local.json
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+!.example/**
