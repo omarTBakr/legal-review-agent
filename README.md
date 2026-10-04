@@ -4,7 +4,7 @@
 
 # Legal Review Agent
 
-**▶ [Watch the walkthrough](images/walkthrough.gif)** ([full-quality video](images/walkthrough.mp4)) — a project, two
+**▶ [Watch the walkthrough with sound](images/walkthrough.mp4)** ([silent GIF](images/walkthrough.gif)) — a project, two
 contracts reviewed on Temporal, a question answered by voice, the risks and the marked-up PDF, questions asked by
 typing and speaking, and a revised draft compared against round one. ([Jump to the demo](#demo))
 
@@ -98,14 +98,16 @@ file a revised draft as round two and see what changed.
 
 ![The Legal Review Agent end to end: a project is created, two contracts are reviewed, the model's questions are answered by voice and by typing, the risks are read and exported, questions are asked by typing and by voice, a revised draft is reviewed as round two and compared, and the workflow is inspected in Temporal](images/walkthrough.gif)
 
-A full-quality copy is in [`images/walkthrough.mp4`](images/walkthrough.mp4).
+The GIF is silent. [`images/walkthrough.mp4`](images/walkthrough.mp4) is the same recording **with sound**: the spoken answer to the model's question, the spoken chat question, and the agent reading its answer aloud, with each word highlighted as it is said.
 
 Nothing here is staged: it is a recording of a real review through the browser
-UI, run by `LegalReviewWorkflow` on a real Temporal server, with
-`deepseek/deepseek-v4.1-flash` through OpenRouter and the voice service
-(Qwen3-ASR to listen, Kokoro to speak) on a laptop GPU. The two contracts are
-the fixtures in [`testingDocs/`](testingDocs/). Stretches that are only waiting
-for the model are fast-forwarded and labelled. In order:
+UI (in its dark theme), run by `LegalReviewWorkflow` on a real Temporal server,
+with `nvidia/nemotron-3-super-120b-a12b` through NVIDIA's hosted API and the
+voice service (Qwen3-ASR to listen, Kokoro to speak) on a laptop GPU. The
+microphone is a recorded clip fed to the browser, so the "voice" is synthetic,
+but it is transcribed by the real speech-to-text. The two contracts are the
+fixtures in [`testingDocs/`](testingDocs/). Stretches that are only waiting for
+the model are fast-forwarded and labelled. In order:
 
 1. **A project** — a name, a description and an address for the emailed report.
 2. **A review** — both PDFs at once; each document is its own run, shown with its own progress.
