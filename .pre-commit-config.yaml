@@ -23,6 +23,8 @@ repos:
         # torch and transformers bring hundreds of pinned packages with them,
         # and it has to be committed for the build to be reproducible
         args: [--maxkb=1024]
+        # the walkthrough recording is the one thing here that is large by nature
+        exclude: ^images/
       - id: detect-private-key
 
   # runs the suite locally before the commit is created

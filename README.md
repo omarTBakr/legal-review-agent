@@ -1,4 +1,12 @@
+<p align="center">
+  <img src="images/logo/logo-animated.svg" alt="LegalReview logo" width="460">
+</p>
+
 # Legal Review Agent
+
+**▶ [Watch the walkthrough](images/walkthrough.gif)** ([full-quality video](images/walkthrough.mp4)) — a project, two
+contracts reviewed on Temporal, a question answered by voice, the risks and the marked-up PDF, questions asked by
+typing and speaking, and a revised draft compared against round one. ([Jump to the demo](#demo))
 
 A FastAPI service with two Temporal pipelines over S3-compatible object storage:
 
@@ -83,23 +91,29 @@ worker, and a browser UI served by the API drives the legal review.
 
 ## Demo
 
-One real use case, end to end: upload a contract into a project, follow the
-workflow on the Temporal server, read the risks, take the JSON and the
-marked-up PDF, then ask about what was found.
+One real project, end to end: file two contracts under a project, follow the
+workflow on Temporal, answer the model's questions (one of them by voice), read
+the risks, take the JSON and the marked-up PDF, ask about what was found, then
+file a revised draft as round two and see what changed.
 
-![An NDA uploaded into a project, its LegalReviewWorkflow running on Temporal, the five risks found, the JSON returned, the same clauses highlighted in the PDF, and a question answered with page citations](images/walkthrough.gif)
+![The Legal Review Agent end to end: a project is created, two contracts are reviewed, the model's questions are answered by voice and by typing, the risks are read and exported, questions are asked by typing and by voice, a revised draft is reviewed as round two and compared, and the workflow is inspected in Temporal](images/walkthrough.gif)
 
-Nothing here is staged. It is a recording of an actual review — a real PDF
-uploaded through the browser, a real `LegalReviewWorkflow` on a real Temporal
-server — and the five risks are what the model found, not a fixture. It ran on
-`gemma4:e4b` through Ollama on a laptop GPU, took about twenty seconds end to
-end, and cost nothing.
+A full-quality copy is in [`images/walkthrough.mp4`](images/walkthrough.mp4).
 
-Every risk carries the quote it rests on, and every quote was checked back
-against the page before it was shown — which is what lets the same passages be
-highlighted in the marked-up PDF. The question at the end is answered from the
-stored advice and the document text, with the page it rests on printed
-alongside.
+Nothing here is staged: it is a recording of a real review through the browser
+UI, run by `LegalReviewWorkflow` on a real Temporal server, with
+`deepseek/deepseek-v4.1-flash` through OpenRouter and the voice service
+(Qwen3-ASR to listen, Kokoro to speak) on a laptop GPU. The two contracts are
+the fixtures in [`testingDocs/`](testingDocs/). Stretches that are only waiting
+for the model are fast-forwarded and labelled. In order:
+
+1. **A project** — a name, a description and an address for the emailed report.
+2. **A review** — both PDFs at once; each document is its own run, shown with its own progress.
+3. **The human in the loop** — the model asks which party the client is; the answer is spoken, transcribed into the box, checked, and sent.
+4. **The results** — a summary and the risks worst first, each quoting the passage it rests on; the JSON and the marked-up PDF are downloaded.
+5. **Asking** — a typed question and a spoken one, answered from the advice and the pages, with the pages it read.
+6. **Round two** — a revised draft filed as a new round of the earlier review, then **compared**: what was fixed, what is new, what got worse.
+7. **Temporal** — the same review as a workflow: its timeline, the human-answer signals and every activity in the event history.
 
 ## The complete workflow
 
@@ -612,7 +626,7 @@ legal-review-agent/
 │   ├── asr.py, tts.py, audio.py    the models, and the WAV handling around them
 │   ├── quantization.py             4-bit and 8-bit loading, with a fallback
 │   └── Docker/                     Dockerfile and compose, with the GPU passed through
-├── images/                         the walkthrough recording used in this README
+├── images/                         the logo and the walkthrough recording used in this README
 ├── .github/workflows/lint.yml      CI: black, ruff and pytest on every push
 ├── .pre-commit-config.yaml         the same checks before every commit
 ├── .env.example                    every setting, with its default
@@ -782,7 +796,7 @@ with a 202 and the task simply stays `processing` until a worker appears.
 ### Browser UI
 
 `http://127.0.0.1:8000/` opens a UI for the legal review pipeline (see
-[Screenshots](#screenshots)). It lives in `ui/` as plain HTML, CSS and
+[Demo](#demo)). It lives in `ui/` as plain HTML, CSS and
 JavaScript with no build step, and the API serves it at `/ui`. Upload several
 PDFs, watch each document's progress, answer the model's questions as they
 come up, and read each document's results as soon as it finishes, without

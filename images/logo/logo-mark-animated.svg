@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240">
+  <style>
+  .ind{fill:#3b5bdb} .ind-s{stroke:#3b5bdb} .lt{fill:#8da2f4} .lt-s{stroke:#8da2f4} .yel{fill:#ffd43b} .ystrip{opacity:.7} .b1{stop-color:#b9c6fa} .b2{stop-color:#5b78e8} .txt{fill:#1c1e26}
+  @media (prefers-color-scheme: dark){ .ystrip{opacity:.95} .ind{fill:#7089f5} .ind-s{stroke:#7089f5} .lt{fill:#9db0f7} .lt-s{stroke:#9db0f7} .txt{fill:#eceef6} .b1{stop-color:#a9b8f7} .b2{stop-color:#7089f5} }
+
+  .a{transform-box:fill-box;transform-origin:center}
+  .draw{stroke-dasharray:1;animation:draw var(--d,.6s) cubic-bezier(.3,.7,.2,1) var(--t,0s) backwards}
+  .pop{animation:pop .45s cubic-bezier(.3,1.5,.5,1) var(--t,0s) backwards}
+  .rise{transform-origin:50% 100%;transform-box:fill-box;animation:rise .7s cubic-bezier(.3,.9,.3,1) var(--t,0s) backwards}
+  .grow{transform-origin:0 50%;transform-box:fill-box;animation:grow .5s cubic-bezier(.3,.7,.2,1) var(--t,0s) backwards}
+  .slide-r{animation:slide-r .6s cubic-bezier(.3,.7,.2,1) var(--t,0s) backwards}
+  .eyes-open{animation:open .35s cubic-bezier(.3,1.4,.5,1) 1.15s backwards}
+  .blink{animation:blink 5.5s ease-in-out 5s infinite}
+  .glance{animation:glance 5.5s ease-in-out 5s infinite}
+  .ink{fill:#1f2a6b} .pageline{fill:#eaf0ff} .lt-page{fill:#8da2f4} .tick{stroke:#ffd43b}
+  .sweep{transform-origin:0 50%;transform-box:fill-box;animation:grow .55s cubic-bezier(.4,.1,.2,1) 2.35s backwards}
+  .scan{animation:scan 5.5s ease-in-out 5s infinite}
+  @keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+  @keyframes pop{from{transform:scale(0)}to{transform:scale(1)}}
+  @keyframes rise{from{opacity:0;transform:translateY(22px) scale(.92)}}
+  @keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+  @keyframes slide-r{from{opacity:0;transform:translateX(26px)}}
+  @keyframes open{from{opacity:0;transform:scaleY(.06)}to{opacity:1;transform:scaleY(1)}}
+  @keyframes blink{0%,90%,100%{transform:scaleY(1)}94%{transform:scaleY(.08)}}
+  @keyframes glance{0%,38%,100%{transform:translateX(0)}46%,70%{transform:translateX(2.6px)}}
+  @keyframes scan{0%,40%,100%{transform:scaleX(1)}50%{transform:scaleX(.55)}60%{transform:scaleX(1)}}
+  @media (prefers-reduced-motion: reduce){ *{animation:none!important} }
+  @media (prefers-color-scheme: dark){ .pageline{fill:#c9d4fb} }
+</style>
+  <g class="ind-s" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none"><path class="draw" pathLength="1" style="--d:.8s" d="M80 30 H30 V210 H80"/><path class="draw" pathLength="1" style="--d:.8s" d="M160 30 H210 V210 H160"/></g>
+  <g class="rise" style="--t:.6s"><path class="ind" d="M80 52 H132 L154 74 V174 Q154 184 144 184 H80 Q70 184 70 174 V62 Q70 52 80 52 Z"/><path d="M132 52 V74 H154" class="lt-page" opacity=".95"/></g>
+  <g class="a eyes-open"><g class="a blink"><circle cx="97" cy="86" r="8.5" fill="#fff"/><circle cx="115" cy="86" r="8.5" fill="#fff"/><g class="glance"><circle cx="100" cy="86" r="4.6" fill="#1f2a6b"/><circle cx="101.6" cy="84" r="1.6" fill="#fff"/><circle cx="118" cy="86" r="4.6" fill="#1f2a6b"/><circle cx="119.6" cy="84" r="1.6" fill="#fff"/></g></g></g>
+  <rect class="grow pageline" style="--t:1.55s" x="84" y="106" width="40" height="8" rx="4"/>
+  <rect class="grow yel" style="--t:2.35s;animation-name:grow" x="78" y="118" width="68" height="16" rx="8"/>
+  <g class="scan"><rect class="grow ink" style="--t:1.8s" x="86" y="123" width="56" height="6" rx="3"/></g>
+  <rect class="grow pageline" style="--t:2.0s" x="84" y="142" width="52" height="8" rx="4"/>
+  <rect class="grow pageline" style="--t:2.15s" x="84" y="158" width="30" height="8" rx="4"/>
+  <circle class="a pop" style="--t:3.00s" cx="164" cy="82" r="9" fill="#e5484d"/>
+  <circle class="a pop" style="--t:3.18s" cx="164" cy="104" r="7" fill="#f5a524"/>
+  <circle class="a pop" style="--t:3.36s" cx="164" cy="123" r="5.5" fill="#ffd43b"/>
+  <path class="tick draw" pathLength="1" style="--t:3.75s;--d:.5s" d="M152 150 L162 160 L182 134" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>
